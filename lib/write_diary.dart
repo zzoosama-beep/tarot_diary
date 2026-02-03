@@ -1,0 +1,989 @@
+// write_diary.dart
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import 'backend/auth_service.dart';
+import 'backend/diary_firestore.dart';
+import 'cardpicker.dart' as cp;
+
+// ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
+import 'ui/layout_tokens.dart';
+
+// ✅ 공통 테마
+import 'theme/app_theme.dart';
+
+class WriteDiaryPage extends StatefulWidget {
+  final DateTime? initialDate;
+  final DateTime? selectedDate;
+
+  const WriteDiaryPage({
+    super.key,
+    this.initialDate,
+    this.selectedDate,
+  });
+
+  @override
+  State<WriteDiaryPage> createState() => _WriteDiaryPageState();
+}
+
+class _WriteDiaryPageState extends State<WriteDiaryPage> {
+  // ================== UI CONST ==================
+  static const double _actionBtnH = 34.0; // 자동/수동/리셋 버튼 높이
+  static const double _btnRadius = 14.0;
+
+  // ================== STATE ==================
+  DateTime _selectedDate = DateTime.now();
+
+  int _cardCount = 1;
+  List<int> _pickedCards = [];
+  bool _isRevealed = false;
+
+  bool _saving = false;
+  bool _loading = false;
+
+  bool _afterUnlocked = false;
+
+  final TextEditingController _beforeCtrl = TextEditingController();
+  final TextEditingController _afterCtrl = TextEditingController();
+
+  bool _touched = false;
+  bool _hydrating = false;
+
+  void _markTouched() {
+    if (_hydrating) return;
+    if (_touched) return;
+    setState(() => _touched = true);
+  }
+
+  // ================== HELPERS ==================
+  bool _hasText(String v) =>
+      v.replaceAll(RegExp(r'[\s\u200B-\u200D\uFEFF]'), '').isNotEmpty;
+
+  String _formatKoreanDate(DateTime d) => '${d.year}년 ${d.month}월 ${d.day}일';
+
+  bool get _canUnlockAfter {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    return !d.isAfter(today);
+  }
+
+  bool get _canSave {
+    if (_saving) return false;
+    final cardOk = _pickedCards.length == _cardCount;
+    final textOk = _hasText(_beforeCtrl.text) ||
+        (_afterUnlocked && _hasText(_afterCtrl.text));
+    return cardOk && textOk;
+  }
+
+  // ================== TYPO (AppTheme 기반) ==================
+  TextStyle get _tsSectionTitle => AppTheme.month.copyWith(
+    fontSize: 14,
+    fontWeight: FontWeight.w900,
+    color: AppTheme.gold.withOpacity(0.80),
+  );
+
+  TextStyle get _tsBody => AppTheme.body.copyWith(
+    fontSize: 15, // ✅ 기존 write_diary 가독성 유지
+    height: 1.45,
+    color: AppTheme.tPrimary.withOpacity(0.85),
+  );
+
+  TextStyle get _tsHint => AppTheme.hint.copyWith(
+    fontSize: 14,
+    height: 1.35,
+    color: AppTheme.tMuted.withOpacity(0.92),
+    fontWeight: FontWeight.w500,
+  );
+
+  TextStyle get _tsMeta => AppTheme.uiSmallLabel.copyWith(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w800,
+    color: AppTheme.tSecondary.withOpacity(0.85),
+  );
+
+  // ================== TOAST (box-width) ==================
+  OverlayEntry? _toastEntry;
+
+  void _toast(String msg) {
+    if (!mounted) return;
+
+    FocusScope.of(context).unfocus();
+
+    _toastEntry?.remove();
+    _toastEntry = null;
+
+    final overlay = Overlay.of(context);
+    if (overlay == null) return;
+
+    // ✅ 센터 컨텐츠 폭에 맞추기: left/right = pageHPad + (센터 패널 내부 padding 14)
+    const double side = LayoutTokens.pageHPad + 14;
+
+    _toastEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        left: side,
+        right: side,
+        bottom: 110,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.78),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              msg,
+              textAlign: TextAlign.center,
+              style: AppTheme.uiSmallLabel.copyWith(
+                color: AppTheme.tPrimary.withOpacity(0.92),
+                fontSize: 12.5,
+                height: 1.15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(_toastEntry!);
+
+    Future.delayed(const Duration(seconds: 2), () {
+      _toastEntry?.remove();
+      _toastEntry = null;
+    });
+  }
+
+  void _trySave() {
+    if (_saving) return;
+
+    final cardOk = _pickedCards.length == _cardCount;
+    if (!cardOk) {
+      _toast('카드를 $_cardCount장 선택(또는 뽑기) 완료해줘!');
+      return;
+    }
+
+    final textOk =
+        _hasText(_beforeCtrl.text) || (_afterUnlocked && _hasText(_afterCtrl.text));
+    if (!textOk) {
+      _toast('텍스트를 한 줄이라도 적어줘!');
+      return;
+    }
+
+    _save();
+  }
+
+  // ================== LIFECYCLE ==================
+  @override
+  void initState() {
+    super.initState();
+
+    _selectedDate = widget.selectedDate ??
+        widget.initialDate ??
+        DateTime.now().add(const Duration(days: 1));
+
+    _beforeCtrl.addListener(() {
+      _markTouched();
+      setState(() {});
+    });
+    _afterCtrl.addListener(() {
+      _markTouched();
+      setState(() {});
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadDiary();
+    });
+  }
+
+  @override
+  void dispose() {
+    _toastEntry?.remove();
+    _beforeCtrl.dispose();
+    _afterCtrl.dispose();
+    super.dispose();
+  }
+
+  // ================== LOAD ==================
+  Future<void> _loadDiary() async {
+    setState(() => _loading = true);
+    try {
+      final user = await AuthService.ensureSignedIn();
+      final uid = user.uid;
+
+      final data = await DiaryFirestore.read(uid: uid, date: _selectedDate);
+      if (!mounted) return;
+
+      _hydrating = true;
+
+      if (data == null) {
+        setState(() {
+          _cardCount = 1;
+          _pickedCards = [];
+          _isRevealed = false;
+
+          _beforeCtrl.text = '';
+          _afterCtrl.text = '';
+          _afterUnlocked = false;
+
+          _touched = false;
+        });
+        _hydrating = false;
+        return;
+      }
+
+      final int cc = (data['cardCount'] as int?) ?? 1;
+      final List<int> cards = (data['cards'] as List).cast<int>();
+
+      final beforeText = (data['beforeText'] ?? '').toString();
+      final afterText = (data['afterText'] ?? '').toString();
+
+      setState(() {
+        _cardCount = cc.clamp(1, 3);
+        _pickedCards = cards.take(_cardCount).toList();
+        _isRevealed = _pickedCards.length == _cardCount;
+
+        _beforeCtrl.text = beforeText;
+        _afterCtrl.text = afterText;
+        _afterUnlocked = _hasText(_afterCtrl.text);
+
+        _touched = false;
+      });
+
+      _hydrating = false;
+    } catch (e) {
+      if (mounted) _toast('불러오기 실패: $e');
+    } finally {
+      _hydrating = false;
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ================== SAVE ==================
+  Future<void> _save() async {
+    if (_saving) {
+      _toast('이미 저장 중…');
+      return;
+    }
+
+    final cardOk = _pickedCards.length == _cardCount;
+    if (!cardOk) {
+      _toast('카드를 $_cardCount장 선택(또는 뽑기) 완료해줘!');
+      return;
+    }
+
+    final textOk =
+        _hasText(_beforeCtrl.text) || (_afterUnlocked && _hasText(_afterCtrl.text));
+    if (!textOk) {
+      _toast('텍스트를 한 줄이라도 적어줘!');
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      _toast('저장 준비 중…(로그인 확인)');
+
+      final user =
+      await AuthService.ensureSignedIn().timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+
+      _toast('저장 중…(Firestore)');
+
+      await DiaryFirestore.save(
+        uid: user.uid,
+        date: _selectedDate,
+        cardCount: _cardCount,
+        cards: _pickedCards,
+        beforeText: _beforeCtrl.text.trim(),
+        afterText: _afterUnlocked ? _afterCtrl.text.trim() : '',
+      ).timeout(const Duration(seconds: 12));
+
+      if (!mounted) return;
+
+      _toast('저장 완료!');
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+
+      Navigator.of(context).pop(true);
+    } on TimeoutException {
+      if (!mounted) return;
+      _toast('저장이 너무 오래 걸려서 중단했어. 네트워크/Firestore 확인해줘!');
+    } catch (e) {
+      if (!mounted) return;
+      _toast('저장 실패: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ================== CARD PICK ==================
+  void _autoPick() {
+    _markTouched();
+
+    final r = math.Random();
+    final set = <int>{};
+    while (set.length < _cardCount) set.add(r.nextInt(78));
+    setState(() {
+      _pickedCards = set.toList();
+      _isRevealed = true;
+    });
+  }
+
+  Future<void> _manualPick() async {
+    final pickedIds = await cp.openCardPicker(
+      context: context,
+      maxPickCount: _cardCount,
+      preselected: _pickedCards,
+    );
+
+    if (!mounted || pickedIds == null) return;
+
+    if (pickedIds.length != _cardCount) {
+      _toast('$_cardCount장을 선택해줘!');
+      return;
+    }
+
+    _markTouched();
+    setState(() {
+      _pickedCards = pickedIds;
+      _isRevealed = true;
+    });
+  }
+
+  void _resetPick() {
+    _markTouched();
+    setState(() {
+      _pickedCards = [];
+      _isRevealed = false;
+    });
+  }
+
+  // ================== BG ==================
+  Widget _bg({required Widget child}) {
+    return Container(color: AppTheme.bgSolid, child: child);
+  }
+
+  // ================== UI ==================
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
+      body: _bg(
+        child: SafeArea(
+          child: Column(
+            children: [
+              // ✅ TOP + CENTER(스크롤)
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    0,
+                    LayoutTokens.scrollTopPad,
+                    0,
+                    LayoutTokens.scrollBottomBase +
+                        MediaQuery.of(context).viewInsets.bottom,
+                  ),
+                  child: Column(
+                    children: [
+                      // ✅ topbox: 좌/중/우 슬롯
+                      TopBox(
+                        left: Transform.translate(
+                          offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
+                          child: _TightIconButton(
+                            icon: Icons.arrow_back_rounded,
+                            color: AppTheme.headerInk,
+                            onTap: () => Navigator.pop(context),
+                          ),
+                        ),
+                        title: Text('내일의 타로일기', style: AppTheme.title),
+                        right: _buildTopRightDatePill(),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // ✅ centerbox: 컨텐츠 폭 동일화
+                      CenterBox(
+                        child: Column(
+                          children: [
+                            if (_loading)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  '불러오는 중…',
+                                  style: AppTheme.uiSmallLabel.copyWith(
+                                    color: AppTheme.tSecondary.withOpacity(0.75),
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            _buildCardSection(),
+                            const SizedBox(height: 16),
+                            _buildDiaryInputs(),
+                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ✅ bottombox: 저장하기 CTA 폭 동일화 + 패딩 토큰
+              BottomBox(child: _buildSaveButton()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ TopBox 우측 슬롯: 날짜 pill (높이 과해지지 않게 vPad 살짝 다운)
+  Widget _buildTopRightDatePill() {
+    final accent = AppTheme.gold.withOpacity(0.75);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppTheme.glassBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withOpacity(0.45), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.calendar_month, size: 13, color: accent),
+          const SizedBox(width: 6),
+          Text(
+            _formatKoreanDate(_selectedDate),
+            style: AppTheme.uiSmallLabel.copyWith(
+              color: AppTheme.headerInk.withOpacity(0.9),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      decoration: BoxDecoration(
+        color: AppTheme.glassBg,
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        border: Border.all(color: AppTheme.panelBorder),
+      ),
+      child: Column(
+        children: [
+          _buildCardList(),
+          const SizedBox(height: 12),
+          _buildCardCountRow(),
+          const SizedBox(height: 18),
+          _buildPickButtons(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardCountRow() {
+    final disabled = _isRevealed;
+
+    BorderRadius _radiusForIndex(int index, bool selected) {
+      if (selected) return BorderRadius.circular(8);
+
+      switch (index) {
+        case 0:
+          return const BorderRadius.horizontal(left: Radius.circular(10));
+        case 2:
+          return const BorderRadius.horizontal(right: Radius.circular(10));
+        default:
+          return BorderRadius.zero;
+      }
+    }
+
+    Widget segItem(int v, int index) {
+      final selected = _cardCount == v;
+
+      return Expanded(
+        child: InkWell(
+          onTap: disabled
+              ? null
+              : () {
+            _markTouched();
+            setState(() {
+              _cardCount = v;
+              _pickedCards = [];
+              _isRevealed = false;
+            });
+          },
+          borderRadius: _radiusForIndex(index, selected),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? AppTheme.gold.withOpacity(0.18) : Colors.transparent,
+              borderRadius: _radiusForIndex(index, selected),
+              border: selected
+                  ? Border.all(color: AppTheme.gold.withOpacity(0.55), width: 1)
+                  : null,
+            ),
+            child: Opacity(
+              opacity: (disabled && !selected) ? 0.35 : 1.0,
+              child: Text(
+                '${v}장',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: selected
+                      ? AppTheme.tPrimary.withOpacity(0.85)
+                      : AppTheme.tSecondary.withOpacity(0.80),
+                  fontSize: 12.2,
+                  fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text('카드 장수  ', style: _tsMeta.copyWith(color: AppTheme.tSecondary.withOpacity(0.70))),
+        const SizedBox(width: 16),
+        Container(
+          height: 32,
+          width: 160,
+          padding: const EdgeInsets.all(0.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: Colors.white.withOpacity(0.03),
+            border: Border.all(color: AppTheme.panelBorder, width: 1),
+          ),
+          child: Row(
+            children: [
+              segItem(1, 0),
+              Container(
+                width: 1,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                color: AppTheme.gold.withOpacity(0.12),
+              ),
+              segItem(2, 1),
+              Container(
+                width: 1,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                color: AppTheme.gold.withOpacity(0.12),
+              ),
+              segItem(3, 2),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCardList() {
+    const double targetCardW = 92.0;
+    const double gap = 6.0;
+    const double cardR = 10.0;
+
+    Widget cardItem(int i, double cardW) {
+      final has = _isRevealed && _pickedCards.length > i;
+
+      return SizedBox(
+        width: cardW,
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(cardR),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.14),
+                  blurRadius: 3,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(cardR),
+              child: Container(
+                color: Colors.black.withOpacity(0.10),
+                alignment: Alignment.center,
+                child: Transform.scale(
+                  scale: has ? 1.03 : 1.00,
+                  child: Image.asset(
+                    has
+                        ? 'asset/cards/${cp.kTarotFileNames[_pickedCards[i]]}'
+                        : 'asset/cards/back.png',
+                    fit: BoxFit.contain,
+                    alignment: Alignment.center,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        final count = _cardCount.clamp(1, 3);
+        final fitW = (maxW - gap * (count - 1)) / count;
+        final cardW = math.min(targetCardW, fitW);
+
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(count, (i) {
+            return Padding(
+              padding: EdgeInsets.only(right: i == count - 1 ? 0 : gap),
+              child: cardItem(i, cardW),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  Widget _buildPickButtons() {
+    if (_isRevealed) {
+      return SizedBox(
+        height: _actionBtnH,
+        child: OutlinedButton.icon(
+          onPressed: _resetPick,
+          icon: Icon(
+            Icons.refresh,
+            size: 16,
+            color: AppTheme.tSecondary.withOpacity(0.85),
+          ),
+          label: Text(
+            '카드 다시 뽑기',
+            style: AppTheme.uiSmallLabel.copyWith(
+              color: AppTheme.tSecondary.withOpacity(0.85),
+              fontSize: 12.2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white.withOpacity(0.02),
+            side: BorderSide(color: AppTheme.gold.withOpacity(0.28), width: 0.9),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_btnRadius),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 132,
+          child: _primaryPickBtn(
+            label: '자동 뽑기',
+            icon: Icons.auto_awesome,
+            onTap: _autoPick,
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 120,
+          child: _secondaryPickBtn(
+            label: '수동 뽑기',
+            icon: Icons.touch_app,
+            onTap: () async => await _manualPick(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _primaryPickBtn({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: _actionBtnH,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          _markTouched();
+          onTap();
+        },
+        icon: Icon(icon, size: 15, color: AppTheme.tPrimary.withOpacity(0.95)),
+        label: Text(
+          label,
+          style: AppTheme.uiSmallLabel.copyWith(
+            color: AppTheme.tPrimary.withOpacity(0.90),
+            fontWeight: FontWeight.w700,
+            fontSize: 12.0,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: AppTheme.gold.withOpacity(0.18),
+          foregroundColor: AppTheme.tPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: AppTheme.gold.withOpacity(0.55), width: 1),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        ),
+      ),
+    );
+  }
+
+  Widget _secondaryPickBtn({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: _actionBtnH,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          _markTouched();
+          onTap();
+        },
+        icon: Icon(icon, color: AppTheme.tSecondary.withOpacity(0.90), size: 15),
+        label: Text(
+          label,
+          style: AppTheme.uiSmallLabel.copyWith(
+            color: AppTheme.tSecondary.withOpacity(0.90),
+            fontWeight: FontWeight.w700,
+            fontSize: 12.0,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: AppTheme.tSecondary.withOpacity(0.45), width: 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiaryInputs() => _combinedDiaryBox();
+
+  Widget _combinedDiaryBox() {
+    final canUnlock = _canUnlockAfter;
+
+    Widget inputPanel({
+      required TextEditingController controller,
+      required String hint,
+      required bool enabled,
+      required double height,
+      Widget? overlay,
+    }) {
+      final radius = BorderRadius.circular(AppTheme.innerRadius);
+
+      return ClipRRect(
+        borderRadius: radius,
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: AppTheme.panelFill.withOpacity(0.58),
+            border: Border.all(color: AppTheme.panelBorderSoft),
+            borderRadius: radius,
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: AbsorbPointer(
+                  absorbing: !enabled,
+                  child: TextField(
+                    controller: controller,
+                    enabled: true,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: _tsBody,
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      hintStyle: _tsHint,
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ),
+              if (overlay != null) Positioned.fill(child: overlay),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: AppTheme.glassBg,
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        border: Border.all(color: AppTheme.panelBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('예상 기록 (Before)', style: _tsSectionTitle),
+          const SizedBox(height: 8),
+          inputPanel(
+            controller: _beforeCtrl,
+            hint: '카드를 뽑고, 내일은 어떤 하루가 될지 적어봐.',
+            enabled: true,
+            height: 145,
+          ),
+          const SizedBox(height: 12),
+          Container(height: 1, color: AppTheme.gold.withOpacity(0.13)),
+          const SizedBox(height: 12),
+          Text('실제 기록 (After)', style: _tsSectionTitle),
+          const SizedBox(height: 8),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (_afterUnlocked) return;
+              if (!canUnlock) {
+                _toast('당일(또는 그 이후)부터 기록할 수 있어!');
+                return;
+              }
+              _markTouched();
+              setState(() => _afterUnlocked = true);
+            },
+            child: inputPanel(
+              controller: _afterCtrl,
+              hint: '오늘을 실제로 겪어보니 어떤 하루였어?',
+              enabled: _afterUnlocked,
+              height: 140,
+              overlay: !_afterUnlocked
+                  ? Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFFB8B2A6).withOpacity(0.12),
+                ),
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.lock_outline,
+                      size: 18,
+                      color: const Color(0xFFB9B4A8).withOpacity(0.65),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '내일이 되면 쓸 수 있어!',
+                      textAlign: TextAlign.center,
+                      style: AppTheme.uiSmallLabel.copyWith(
+                        color: AppTheme.headerInk.withOpacity(0.68),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        height: 1.15,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+                  : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSaveButton() {
+    final can = _canSave && !_saving;
+    final visualActive = can && _touched;
+
+    const baseBg = Color(0xFF2E2348);
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _trySave,
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          backgroundColor: visualActive
+              ? baseBg.withOpacity(0.96)
+              : baseBg.withOpacity(can ? 0.70 : 0.42),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_btnRadius),
+            side: BorderSide(
+              color: AppTheme.gold.withOpacity(
+                visualActive ? 0.48 : (can ? 0.32 : 0.18),
+              ),
+              width: 1,
+            ),
+          ),
+        ),
+        child: Text(
+          _saving ? '저장 중…' : '저장하기',
+          style: AppTheme.uiSmallLabel.copyWith(
+            color: visualActive
+                ? AppTheme.gold.withOpacity(0.92)
+                : AppTheme.gold.withOpacity(can ? 0.74 : 0.42),
+            fontSize: 14.0,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.2,
+            height: 1.0,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ✅ 상단 아이콘 타이트 버튼
+class _TightIconButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _TightIconButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkResponse(
+      onTap: onTap,
+      radius: 22,
+      splashColor: AppTheme.inkSplash,
+      highlightColor: AppTheme.inkHighlight,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Icon(icon, size: 24, color: color),
+        ),
+      ),
+    );
+  }
+}

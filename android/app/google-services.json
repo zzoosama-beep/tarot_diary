@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "949643870997",
+    "project_id": "tarotdiary-88376",
+    "storage_bucket": "tarotdiary-88376.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949643870997:android:3e00113ca8ab7d51b4df1c",
+        "android_client_info": {
+          "package_name": "com.example.tarot_diary"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949643870997-vh1aiiigjpnqgrqch5elt2jcroc26dr2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYZKVjeJMifEGz9EXcfddBRkZwmY2ovs8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949643870997-d7couhi59akjmvvi95jpgnc6nnltk1a9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
