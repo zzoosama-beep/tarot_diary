@@ -1,12 +1,14 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'write_diary.dart';
-import 'firebase_options.dart';
-import 'calander_diary.dart';
 
+import 'write_diary.dart';
+import 'calander_diary.dart';
+import 'firebase_options.dart';
+
+// ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
+Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,7 +76,7 @@ class _MainHomePageState extends State<MainHomePage> {
                 behavior: HitTestBehavior.translucent,
                 onTap: _closeMenu,
                 child: Container(
-                  color: Colors.black.withOpacity(0.12),
+                  color: _a(Colors.black, 0.12),
                 ),
               ),
             ),
@@ -90,13 +92,13 @@ class _MainHomePageState extends State<MainHomePage> {
                     fit: BoxFit.fitWidth,
                     alignment: Alignment.topCenter,
                   ),
-                  Positioned(
+                  const Positioned(
                     left: 100,
                     top: 70,
-                    child: const MagicNeonBox(
+                    child: MagicNeonBox(
                       child: NeonMessageText(
                         text: '아직 기록이 없네.\n한 장만 남겨볼까?',
-                     ),
+                      ),
                     ),
                   ),
                 ],
@@ -111,6 +113,8 @@ class _MainHomePageState extends State<MainHomePage> {
                         alignment: Alignment.topCenter,
                       ),
                     ),
+
+                    // ✅ 상단 그라데이션 마스크
                     Align(
                       alignment: Alignment.topCenter,
                       child: IgnorePointer(
@@ -121,14 +125,15 @@ class _MainHomePageState extends State<MainHomePage> {
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                               colors: [
-                                backgroundColor.withOpacity(0.80),
-                                backgroundColor.withOpacity(0.00),
+                                _a(backgroundColor, 0.80),
+                                _a(backgroundColor, 0.00),
                               ],
                             ),
                           ),
                         ),
                       ),
                     ),
+
                     LayoutBuilder(
                       builder: (context, c) {
                         final h = c.maxHeight;
@@ -153,13 +158,12 @@ class _MainHomePageState extends State<MainHomePage> {
                                       _HomeAction(
                                         icon: Icons.pets_rounded,
                                         label: '내일의 타로일기 쓰기',
-                                      onTap: () {
-                                        _closeMenu();
-                                        Navigator.of(context).push(
-                                          _fadeRoute(const WriteDiaryPage()),
-                                        );
-                                      },
-
+                                        onTap: () {
+                                          _closeMenu();
+                                          Navigator.of(context).push(
+                                            _fadeRoute(const WriteDiaryPage()),
+                                          );
+                                        },
                                       ),
                                       _HomeAction(
                                         icon: Icons.pets_rounded,
@@ -183,12 +187,12 @@ class _MainHomePageState extends State<MainHomePage> {
                                       _HomeAction(
                                         icon: Icons.pets_rounded,
                                         label: '78장 아르카나 기록하기',
-                                        onTap: () => _closeMenu(),
+                                        onTap: _closeMenu,
                                       ),
                                       _HomeAction(
                                         icon: Icons.pets_rounded,
                                         label: '타로카드 도감',
-                                        onTap: () => _closeMenu(),
+                                        onTap: _closeMenu,
                                       ),
                                     ],
                                   ),
@@ -211,7 +215,7 @@ class _MainHomePageState extends State<MainHomePage> {
 }
 
 // ---------------------------------------------------------
-// ✨ [신규] 별 장식 테두리 위젯 (MagicNeonBox)
+// ✨ 별 장식 테두리 위젯 (MagicNeonBox)
 // ---------------------------------------------------------
 class MagicNeonBox extends StatelessWidget {
   final Widget child;
@@ -222,16 +226,14 @@ class MagicNeonBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
       decoration: BoxDecoration(
-        // 은은한 금색 라인 테두리
         border: Border.all(
-            color: const Color(0xFFF3E5AB).withOpacity(0.3),
-            width: 0.8
+          color: _a(const Color(0xFFF3E5AB), 0.30),
+          width: 0.8,
         ),
         borderRadius: BorderRadius.circular(15),
-        // 테두리 외곽에 아주 연한 보라색 광조 효과
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF7A5CFF).withOpacity(0.05),
+            color: _a(const Color(0xFF7A5CFF), 0.05),
             blurRadius: 10,
             spreadRadius: 1,
           )
@@ -241,13 +243,16 @@ class MagicNeonBox extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           child,
-          // 모서리에 배치된 작은 별 아이콘 장식
           const Positioned(
-              top: -16, left: -10,
-              child: Icon(Icons.star, size: 10, color: Color(0xFFF3E5AB))),
+            top: -16,
+            left: -10,
+            child: Icon(Icons.star, size: 10, color: Color(0xFFF3E5AB)),
+          ),
           const Positioned(
-              bottom: -16, right: -10,
-              child: Icon(Icons.star_outline, size: 10, color: Color(0xFFF3E5AB))),
+            bottom: -16,
+            right: -10,
+            child: Icon(Icons.star_outline, size: 10, color: Color(0xFFF3E5AB)),
+          ),
         ],
       ),
     );
@@ -276,7 +281,6 @@ class _ExpandableHomeButton extends StatelessWidget {
     required this.actions,
   });
 
-  static const Color gold = Color(0xFFD4AF37);
   static const Color scrollInk = Color(0xFF433422);
   static const Color paperColor = Color(0xFFF2E6CE);
 
@@ -300,10 +304,11 @@ class _ExpandableHomeButton extends StatelessWidget {
             width: width,
             decoration: BoxDecoration(
               color: paperColor,
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(15)),
+              borderRadius:
+              const BorderRadius.vertical(bottom: Radius.circular(15)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
+                  color: _a(Colors.black, 0.20),
                   blurRadius: 15,
                   offset: const Offset(0, 8),
                 )
@@ -315,7 +320,7 @@ class _ExpandableHomeButton extends StatelessWidget {
                 Container(
                   height: 2,
                   width: double.infinity,
-                  color: Colors.black.withOpacity(0.05),
+                  color: _a(Colors.black, 0.05),
                 ),
                 ...actions.map((action) {
                   return Material(
@@ -323,14 +328,17 @@ class _ExpandableHomeButton extends StatelessWidget {
                     child: InkWell(
                       onTap: action.onTap,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 15,
+                        ),
                         child: Row(
                           children: [
                             Transform.rotate(
                               angle: -0.2,
                               child: Icon(
                                 action.icon,
-                                color: scrollInk.withOpacity(0.7),
+                                color: _a(scrollInk, 0.70),
                                 size: 18,
                               ),
                             ),
@@ -354,15 +362,15 @@ class _ExpandableHomeButton extends StatelessWidget {
                 Container(
                   height: 14,
                   width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD9C5A0),
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(15)),
+                  decoration: const BoxDecoration(
+                    borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(15)),
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        const Color(0xFFD9C5A0),
-                        const Color(0xFFC7B18A),
+                        Color(0xFFD9C5A0),
+                        Color(0xFFC7B18A),
                       ],
                     ),
                   ),
@@ -399,12 +407,12 @@ class _MenuHeaderButton extends StatelessWidget {
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
         minimumSize: Size(width, 54),
-        backgroundColor: Colors.white.withOpacity(0.08),
-        side: BorderSide(color: gold.withOpacity(0.9), width: 1.5),
+        backgroundColor: _a(Colors.white, 0.08),
+        side: BorderSide(color: _a(gold, 0.90), width: 1.5),
         shape: RoundedRectangleBorder(
-            borderRadius: isOpen
-                ? const BorderRadius.vertical(top: Radius.circular(15))
-                : BorderRadius.circular(15)
+          borderRadius: isOpen
+              ? const BorderRadius.vertical(top: Radius.circular(15))
+              : BorderRadius.circular(15),
         ),
         padding: EdgeInsets.zero,
       ),
@@ -439,7 +447,7 @@ class _MenuHeaderButton extends StatelessWidget {
                   curve: Curves.easeInOutCubic,
                   child: Icon(
                     Icons.expand_more_rounded,
-                    color: ink.withOpacity(0.95),
+                    color: _a(ink, 0.95),
                     size: 26,
                   ),
                 ),
@@ -474,15 +482,16 @@ class NeonMessageText extends StatefulWidget {
   State<NeonMessageText> createState() => _NeonMessageTextState();
 }
 
-class _NeonMessageTextState extends State<NeonMessageText> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
+class _NeonMessageTextState extends State<NeonMessageText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 6000), // 은은한 일렁임을 위한 6초 호흡
+      duration: const Duration(milliseconds: 6000),
       vsync: this,
     )..repeat(reverse: true);
 
@@ -505,24 +514,26 @@ class _NeonMessageTextState extends State<NeonMessageText> with SingleTickerProv
       builder: (context, child) {
         final double v = _animation.value;
 
+        // ✅ 기존: Color.lerp(a.withOpacity, b, v)
+        // -> withOpacity 제거 버전으로 치환
+        final c1 = _a(const Color(0xFFF8F6FF), 0.85);
+        final c2 = const Color(0xFFF8F6FF);
+        final textColor = Color.lerp(c1, c2, v)!;
+
         return Text(
           widget.text,
           style: GoogleFonts.jua(
             fontSize: 15,
             height: 1.4,
-            color: Color.lerp(
-                const Color(0xFFF8F6FF).withOpacity(0.85),
-                const Color(0xFFF8F6FF),
-                v
-            ),
+            color: textColor,
             shadows: [
               Shadow(
-                color: const Color(0xFFBFA8FF).withOpacity(0.4 + (v * 0.4)),
+                color: _a(const Color(0xFFBFA8FF), 0.4 + (v * 0.4)),
                 blurRadius: 5 + (v * 5),
                 offset: const Offset(0, 0),
               ),
               Shadow(
-                color: const Color(0xFF7A5CFF).withOpacity(0.2 + (v * 0.5)),
+                color: _a(const Color(0xFF7A5CFF), 0.2 + (v * 0.5)),
                 blurRadius: 10 + (v * 15),
                 offset: const Offset(0, 0),
               ),

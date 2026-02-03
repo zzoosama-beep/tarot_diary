@@ -10,6 +10,8 @@ import 'cardpicker.dart' as cp;
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
 import 'ui/layout_tokens.dart';
+// ✅ 공용 CTA 버튼 (저장/수정/삭제)
+import 'ui/app_buttons.dart';
 
 // ✅ 공통 테마
 import 'theme/app_theme.dart';
@@ -32,6 +34,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== UI CONST ==================
   static const double _actionBtnH = 34.0; // 자동/수동/리셋 버튼 높이
   static const double _btnRadius = 14.0;
+
+  // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
+  static Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
   // ================== STATE ==================
   DateTime _selectedDate = DateTime.now();
@@ -73,8 +78,8 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   bool get _canSave {
     if (_saving) return false;
     final cardOk = _pickedCards.length == _cardCount;
-    final textOk = _hasText(_beforeCtrl.text) ||
-        (_afterUnlocked && _hasText(_afterCtrl.text));
+    final textOk =
+        _hasText(_beforeCtrl.text) || (_afterUnlocked && _hasText(_afterCtrl.text));
     return cardOk && textOk;
   }
 
@@ -82,26 +87,26 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   TextStyle get _tsSectionTitle => AppTheme.month.copyWith(
     fontSize: 14,
     fontWeight: FontWeight.w900,
-    color: AppTheme.gold.withOpacity(0.80),
+    color: _a(AppTheme.gold, 0.80),
   );
 
   TextStyle get _tsBody => AppTheme.body.copyWith(
     fontSize: 15, // ✅ 기존 write_diary 가독성 유지
     height: 1.45,
-    color: AppTheme.tPrimary.withOpacity(0.85),
+    color: _a(AppTheme.tPrimary, 0.85),
   );
 
   TextStyle get _tsHint => AppTheme.hint.copyWith(
     fontSize: 14,
     height: 1.35,
-    color: AppTheme.tMuted.withOpacity(0.92),
+    color: _a(AppTheme.tMuted, 0.92),
     fontWeight: FontWeight.w500,
   );
 
   TextStyle get _tsMeta => AppTheme.uiSmallLabel.copyWith(
     fontSize: 12.5,
     fontWeight: FontWeight.w800,
-    color: AppTheme.tSecondary.withOpacity(0.85),
+    color: _a(AppTheme.tSecondary, 0.85),
   );
 
   // ================== TOAST (box-width) ==================
@@ -131,14 +136,14 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.78),
+              color: _a(Colors.black, 0.78),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
               msg,
               textAlign: TextAlign.center,
               style: AppTheme.uiSmallLabel.copyWith(
-                color: AppTheme.tPrimary.withOpacity(0.92),
+                color: _a(AppTheme.tPrimary, 0.92),
                 fontSize: 12.5,
                 height: 1.15,
                 fontWeight: FontWeight.w700,
@@ -181,9 +186,8 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   void initState() {
     super.initState();
 
-    _selectedDate = widget.selectedDate ??
-        widget.initialDate ??
-        DateTime.now().add(const Duration(days: 1));
+    _selectedDate =
+        widget.selectedDate ?? widget.initialDate ?? DateTime.now().add(const Duration(days: 1));
 
     _beforeCtrl.addListener(() {
       _markTouched();
@@ -402,7 +406,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                         title: Text('내일의 타로일기', style: AppTheme.title),
                         right: _buildTopRightDatePill(),
                       ),
-
                       const SizedBox(height: 14),
 
                       // ✅ centerbox: 컨텐츠 폭 동일화
@@ -415,7 +418,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                                 child: Text(
                                   '불러오는 중…',
                                   style: AppTheme.uiSmallLabel.copyWith(
-                                    color: AppTheme.tSecondary.withOpacity(0.75),
+                                    color: _a(AppTheme.tSecondary, 0.75),
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w800,
                                   ),
@@ -433,7 +436,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                 ),
               ),
 
-              // ✅ bottombox: 저장하기 CTA 폭 동일화 + 패딩 토큰
+              // ✅ bottombox: 저장하기 CTA
               BottomBox(child: _buildSaveButton()),
             ],
           ),
@@ -442,16 +445,16 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     );
   }
 
-  // ✅ TopBox 우측 슬롯: 날짜 pill (높이 과해지지 않게 vPad 살짝 다운)
+  // ✅ TopBox 우측 슬롯: 날짜 pill
   Widget _buildTopRightDatePill() {
-    final accent = AppTheme.gold.withOpacity(0.75);
+    final accent = _a(AppTheme.gold, 0.75);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: AppTheme.glassBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withOpacity(0.45), width: 0.8),
+        border: Border.all(color: _a(accent, 0.45), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -461,7 +464,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           Text(
             _formatKoreanDate(_selectedDate),
             style: AppTheme.uiSmallLabel.copyWith(
-              color: AppTheme.headerInk.withOpacity(0.9),
+              color: _a(AppTheme.headerInk, 0.9),
               fontSize: 11.5,
               fontWeight: FontWeight.w800,
               height: 1.0,
@@ -531,10 +534,10 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
             height: 32,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: selected ? AppTheme.gold.withOpacity(0.18) : Colors.transparent,
+              color: selected ? _a(AppTheme.gold, 0.18) : Colors.transparent,
               borderRadius: _radiusForIndex(index, selected),
               border: selected
-                  ? Border.all(color: AppTheme.gold.withOpacity(0.55), width: 1)
+                  ? Border.all(color: _a(AppTheme.gold, 0.55), width: 1)
                   : null,
             ),
             child: Opacity(
@@ -543,8 +546,8 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                 '${v}장',
                 style: AppTheme.uiSmallLabel.copyWith(
                   color: selected
-                      ? AppTheme.tPrimary.withOpacity(0.85)
-                      : AppTheme.tSecondary.withOpacity(0.80),
+                      ? _a(AppTheme.tPrimary, 0.85)
+                      : _a(AppTheme.tSecondary, 0.80),
                   fontSize: 12.2,
                   fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
                 ),
@@ -558,7 +561,10 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text('카드 장수  ', style: _tsMeta.copyWith(color: AppTheme.tSecondary.withOpacity(0.70))),
+        Text(
+          '카드 장수  ',
+          style: _tsMeta.copyWith(color: _a(AppTheme.tSecondary, 0.70)),
+        ),
         const SizedBox(width: 16),
         Container(
           height: 32,
@@ -566,7 +572,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           padding: const EdgeInsets.all(0.5),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: Colors.white.withOpacity(0.03),
+            color: _a(Colors.white, 0.03),
             border: Border.all(color: AppTheme.panelBorder, width: 1),
           ),
           child: Row(
@@ -575,13 +581,13 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
               Container(
                 width: 1,
                 margin: const EdgeInsets.symmetric(vertical: 8),
-                color: AppTheme.gold.withOpacity(0.12),
+                color: _a(AppTheme.gold, 0.12),
               ),
               segItem(2, 1),
               Container(
                 width: 1,
                 margin: const EdgeInsets.symmetric(vertical: 8),
-                color: AppTheme.gold.withOpacity(0.12),
+                color: _a(AppTheme.gold, 0.12),
               ),
               segItem(3, 2),
             ],
@@ -608,7 +614,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
               borderRadius: BorderRadius.circular(cardR),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.14),
+                  color: _a(Colors.black, 0.14),
                   blurRadius: 3,
                   offset: const Offset(0, 4),
                 ),
@@ -617,7 +623,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(cardR),
               child: Container(
-                color: Colors.black.withOpacity(0.10),
+                color: _a(Colors.black, 0.10),
                 alignment: Alignment.center,
                 child: Transform.scale(
                   scale: has ? 1.03 : 1.00,
@@ -666,19 +672,19 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           icon: Icon(
             Icons.refresh,
             size: 16,
-            color: AppTheme.tSecondary.withOpacity(0.85),
+            color: _a(AppTheme.tSecondary, 0.85),
           ),
           label: Text(
             '카드 다시 뽑기',
             style: AppTheme.uiSmallLabel.copyWith(
-              color: AppTheme.tSecondary.withOpacity(0.85),
+              color: _a(AppTheme.tSecondary, 0.85),
               fontSize: 12.2,
               fontWeight: FontWeight.w700,
             ),
           ),
           style: OutlinedButton.styleFrom(
-            backgroundColor: Colors.white.withOpacity(0.02),
-            side: BorderSide(color: AppTheme.gold.withOpacity(0.28), width: 0.9),
+            backgroundColor: _a(Colors.white, 0.02),
+            side: BorderSide(color: _a(AppTheme.gold, 0.28), width: 0.9),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(_btnRadius),
             ),
@@ -726,22 +732,22 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           _markTouched();
           onTap();
         },
-        icon: Icon(icon, size: 15, color: AppTheme.tPrimary.withOpacity(0.95)),
+        icon: Icon(icon, size: 15, color: _a(AppTheme.tPrimary, 0.95)),
         label: Text(
           label,
           style: AppTheme.uiSmallLabel.copyWith(
-            color: AppTheme.tPrimary.withOpacity(0.90),
+            color: _a(AppTheme.tPrimary, 0.90),
             fontWeight: FontWeight.w700,
             fontSize: 12.0,
           ),
         ),
         style: ElevatedButton.styleFrom(
           elevation: 0,
-          backgroundColor: AppTheme.gold.withOpacity(0.18),
+          backgroundColor: _a(AppTheme.gold, 0.18),
           foregroundColor: AppTheme.tPrimary,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: AppTheme.gold.withOpacity(0.55), width: 1),
+            side: BorderSide(color: _a(AppTheme.gold, 0.55), width: 1),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -763,17 +769,17 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           _markTouched();
           onTap();
         },
-        icon: Icon(icon, color: AppTheme.tSecondary.withOpacity(0.90), size: 15),
+        icon: Icon(icon, color: _a(AppTheme.tSecondary, 0.90), size: 15),
         label: Text(
           label,
           style: AppTheme.uiSmallLabel.copyWith(
-            color: AppTheme.tSecondary.withOpacity(0.90),
+            color: _a(AppTheme.tSecondary, 0.90),
             fontWeight: FontWeight.w700,
             fontSize: 12.0,
           ),
         ),
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: AppTheme.tSecondary.withOpacity(0.45), width: 1),
+          side: BorderSide(color: _a(AppTheme.tSecondary, 0.45), width: 1),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -802,7 +808,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
         child: Container(
           height: height,
           decoration: BoxDecoration(
-            color: AppTheme.panelFill.withOpacity(0.58),
+            color: _a(AppTheme.panelFill, 0.58),
             border: Border.all(color: AppTheme.panelBorderSoft),
             borderRadius: radius,
           ),
@@ -857,7 +863,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
             height: 145,
           ),
           const SizedBox(height: 12),
-          Container(height: 1, color: AppTheme.gold.withOpacity(0.13)),
+          Container(height: 1, color: _a(AppTheme.gold, 0.13)),
           const SizedBox(height: 12),
           Text('실제 기록 (After)', style: _tsSectionTitle),
           const SizedBox(height: 8),
@@ -881,7 +887,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                   ? Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFFB8B2A6).withOpacity(0.12),
+                  color: _a(const Color(0xFFB8B2A6), 0.12),
                 ),
                 alignment: Alignment.center,
                 child: Column(
@@ -890,14 +896,14 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                     Icon(
                       Icons.lock_outline,
                       size: 18,
-                      color: const Color(0xFFB9B4A8).withOpacity(0.65),
+                      color: _a(const Color(0xFFB9B4A8), 0.65),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       '내일이 되면 쓸 수 있어!',
                       textAlign: TextAlign.center,
                       style: AppTheme.uiSmallLabel.copyWith(
-                        color: AppTheme.headerInk.withOpacity(0.68),
+                        color: _a(AppTheme.headerInk, 0.68),
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                         height: 1.15,
@@ -916,43 +922,16 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
   Widget _buildSaveButton() {
     final can = _canSave && !_saving;
-    final visualActive = can && _touched;
 
-    const baseBg = Color(0xFF2E2348);
-
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _trySave,
-        style: ElevatedButton.styleFrom(
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          backgroundColor: visualActive
-              ? baseBg.withOpacity(0.96)
-              : baseBg.withOpacity(can ? 0.70 : 0.42),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(_btnRadius),
-            side: BorderSide(
-              color: AppTheme.gold.withOpacity(
-                visualActive ? 0.48 : (can ? 0.32 : 0.18),
-              ),
-              width: 1,
-            ),
-          ),
-        ),
-        child: Text(
-          _saving ? '저장 중…' : '저장하기',
-          style: AppTheme.uiSmallLabel.copyWith(
-            color: visualActive
-                ? AppTheme.gold.withOpacity(0.92)
-                : AppTheme.gold.withOpacity(can ? 0.74 : 0.42),
-            fontSize: 14.0,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.2,
-            height: 1.0,
-          ),
-        ),
-      ),
+    return AppCtaButton(
+      label: _saving ? '저장 중…' : '저장하기',
+      icon: Icons.save_rounded,
+      onPressed: can ? _trySave : null,
+      emphasis: true,
+      danger: false,
+      height: 44,
+      fontSize: 14.0,
+      radius: _btnRadius.toDouble(),
     );
   }
 }

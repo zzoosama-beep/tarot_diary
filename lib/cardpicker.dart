@@ -1,6 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+// ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
+Color _a(Color c, double o) => c.withAlpha((o * 255).round());
+
 // ✅ WriteDiary랑 같은 배경(별 없는 딥퍼플 그라데이션)
 const Color _bgTop = Color(0xFF1B132E);
 const Color _bgMid = Color(0xFF3A2B5F);
@@ -8,7 +11,7 @@ const Color _bgBot = Color(0xFF5A3F86);
 
 // 🎨 UI Tone (WriteDiary와 통일)
 const Color uiTextMain = Color(0xFFD2CEC6); // 웜그레이(화이트틱 ↓)
-const Color uiTextSub  = Color(0xFFBEB8AE); // 더 낮은 서브톤
+const Color uiTextSub = Color(0xFFBEB8AE); // 더 낮은 서브톤
 const Color uiGoldSoft = Color(0xFFB6923A); // 브론즈 골드(노랑쨍 ↓)
 
 // ✅ "예상 기록"에서 쓰는 포인트 컬러를 공용으로
@@ -113,7 +116,6 @@ Future<List<int>?> openCardPicker({
   );
 }
 
-
 class _CardPickerDialog extends StatefulWidget {
   final int maxPickCount;
   final List<int> preselected;
@@ -169,9 +171,9 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black26,
+                      _a(Colors.black, 0.16), // 기존 black26
                       Colors.transparent,
-                      Colors.black12,
+                      _a(Colors.black, 0.08), // 기존 black12
                     ],
                   ),
                 ),
@@ -213,8 +215,8 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
         child: _bg(
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.06),
-              border: Border.all(color: Colors.white.withOpacity(0.16)),
+              color: _a(Colors.white, 0.06),
+              border: Border.all(color: _a(Colors.white, 0.16)),
             ),
             child: Column(
               children: [
@@ -222,21 +224,16 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
 
                 // ===== 헤더 =====
                 Padding(
-                  // ✅ 헤더 좌우 여백을 약간 줄여서(14→12) 아이콘이 덜 밀려 보이게
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      // ✅ 기존 GestureDetector+Padding 대신
-                      //    "시각 위치는 왼쪽으로", "터치 영역은 충분히"인 타이트 버튼 사용
                       _TightIconButton(
                         icon: Icons.close,
-                      color: uiTextMain,
+                        color: uiTextMain,
                         onTap: () => Navigator.pop(context),
                       ),
-
                       const SizedBox(width: 8),
-
-                      Text(
+                      const Text(
                         "카드 선택",
                         style: TextStyle(
                           color: uiTextMain,
@@ -245,12 +242,10 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                           letterSpacing: -0.2,
                         ),
                       ),
-
                       const Spacer(),
-
                       Text(
                         "${_picked.length}/${widget.maxPickCount}",
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: uiTextSub,
                           fontWeight: FontWeight.w900,
                         ),
@@ -267,8 +262,7 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                     child: Text(
                       "뒷면을 눌러 선택해줘. (선택하면 뒤집혀)",
                       style: TextStyle(
-                        // ✅ 하드코딩 제거, 포인트 컬러 통일
-                        color: uiAccent.withOpacity(uiAccentOpacity),
+                        color: _a(uiAccent, uiAccentOpacity),
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
                       ),
@@ -289,20 +283,18 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                         crossAxisCount: 4,
                         mainAxisSpacing: 10,
                         crossAxisSpacing: 10,
-                        childAspectRatio: 2 / 3, // ✅ 0.642857... 카드 비율과 정확히 맞춤
+                        childAspectRatio: 2 / 3,
                       ),
-
                       itemCount: _deck.length,
                       itemBuilder: (context, index) {
                         final id = _deck[index];
                         final fn = kTarotFileNames[id];
 
                         final picked = _isPicked(id);
-                        final limitReached =
-                            _picked.length >= widget.maxPickCount;
+                        final limitReached = _picked.length >= widget.maxPickCount;
 
-                        // ✅ 다 골랐으면 선택된 카드만 터치 허용
-                        final shouldLock = picked || (limitReached && !picked);
+                        // ✅ 다 골랐으면 "미선택"만 잠금 (선택된 건 이미 뒤집혔으니 OK)
+                        final shouldLock = limitReached && !picked;
 
                         return FlipTarotCard(
                           key: ValueKey("$_resetNonce-$id"),
@@ -324,7 +316,8 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                     children: [
                       IconButton(
                         onPressed: _picked.isEmpty ? null : _resetPicks,
-                        icon: Icon(Icons.refresh, color: uiTextMain),
+                        icon: Icon(Icons.refresh, color: _a(uiTextMain, 0.92)),
+                        disabledColor: _a(uiTextMain, 0.35),
                       ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -332,26 +325,25 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                           height: 46,
                           child: ElevatedButton(
                             onPressed: isComplete
-                                ? () => Navigator.pop(
-                                context, List<int>.from(_picked))
+                                ? () => Navigator.pop(context, List<int>.from(_picked))
                                 : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withOpacity(
-                                  isComplete ? 0.20 : 0.10),
+                              backgroundColor: _a(
+                                Colors.white,
+                                isComplete ? 0.20 : 0.10,
+                              ),
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: _a(Colors.white, 0.08),
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                side: BorderSide(
-                                    color: Colors.white.withOpacity(0.22)),
+                                side: BorderSide(color: _a(Colors.white, 0.22)),
                               ),
                             ),
                             child: Text(
-                              isComplete
-                                  ? "선택 완료"
-                                  : "카드를 ${widget.maxPickCount}장 선택해줘",
-                              style: const TextStyle(
-                                color: uiTextMain,
+                              isComplete ? "선택 완료" : "카드를 ${widget.maxPickCount}장 선택해줘",
+                              style: TextStyle(
+                                color: _a(uiTextMain, isComplete ? 0.98 : 0.55),
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
@@ -370,9 +362,7 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
   }
 }
 
-/// ✅ 헤더 아이콘이 "오른쪽으로 밀려 보이는" 느낌을 줄이는 타이트 버튼
-/// - 시각적 위치는 딱 붙여주고
-/// - 터치 영역은 40x40 정도로 유지
+/// ✅ 헤더 아이콘 타이트 버튼
 class _TightIconButton extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -389,6 +379,8 @@ class _TightIconButton extends StatelessWidget {
     return InkResponse(
       onTap: onTap,
       radius: 22,
+      splashColor: _a(Colors.white, 0.06),
+      highlightColor: _a(Colors.white, 0.04),
       child: SizedBox(
         width: 40,
         height: 40,
@@ -442,6 +434,7 @@ class _FlipTarotCardState extends State<FlipTarotCard>
   Future<void> _flipToFrontOnce() async {
     if (widget.isLocked) return;
     if (_controller.isAnimating) return;
+    if (_controller.isCompleted) return; // ✅ 이미 앞면이면 재실행 방지
 
     await _controller.forward();
     widget.onFlippedToFront();
@@ -456,6 +449,13 @@ class _FlipTarotCardState extends State<FlipTarotCard>
   @override
   Widget build(BuildContext context) {
     final badge = widget.orderBadge;
+
+    // ✅ back(contain)이 너무 작아 보이는 문제: 아주 살짝만 확대
+    const double backScale = 1.08;
+    const double frontScale = 1.0;
+
+    // ✅ radius 통일 (카드 모서리)
+    const double cardR = 7;
 
     return GestureDetector(
       onTap: _flipToFrontOnce,
@@ -474,21 +474,20 @@ class _FlipTarotCardState extends State<FlipTarotCard>
                   ..setEntry(3, 2, 0.001)
                   ..rotateY(angle),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(7),
+                  borderRadius: BorderRadius.circular(cardR),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       // ✅ 앞면 보여줄 때만 rotateY(pi) 추가해서 미러링 방지
                       Transform(
                         alignment: Alignment.center,
-                        transform: showFront
-                            ? (Matrix4.identity()..rotateY(pi))
-                            : Matrix4.identity(),
+                        transform:
+                        showFront ? (Matrix4.identity()..rotateY(pi)) : Matrix4.identity(),
                         child: Container(
-                          color: Colors.black.withOpacity(0.10), // ✅ 앞/뒤 공통 아주 살짝만
+                          color: _a(Colors.black, 0.10), // ✅ 앞/뒤 공통 아주 살짝만
+                          alignment: Alignment.center,
                           child: Transform.scale(
-                            // ✅ 뒷면(contain)이 너무 작아지는 걸 “살짝 확대”로 해결
-                            scale: showFront ? 1 : 1,
+                            scale: showFront ? frontScale : backScale,
                             child: Image.asset(
                               showFront ? widget.frontImage : widget.backImage,
                               fit: showFront ? BoxFit.cover : BoxFit.contain,
@@ -497,15 +496,14 @@ class _FlipTarotCardState extends State<FlipTarotCard>
                             ),
                           ),
                         ),
-
                       ),
 
                       if (widget.isLocked || badge != null)
                         Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(cardR),
                             border: Border.all(
-                              color: uiGoldSoft.withOpacity(0.75),
+                              color: _a(uiGoldSoft, 0.75),
                               width: 1.5,
                             ),
                           ),
@@ -524,11 +522,31 @@ class _FlipTarotCardState extends State<FlipTarotCard>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.55), // 그대로 유지
+                  color: _a(Colors.black, 0.55),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: const Color(0xFFD4AF37).withOpacity(0.8), // 골드 라인
+                  border: Border.all(color: _a(const Color(0xFFD4AF37), 0.80)),
+                ),
+                child: const Text(
+                  "",
+                  style: TextStyle(
+                    color: uiTextMain,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
                   ),
+                ),
+              ),
+            ),
+
+          // ✅ 배지 텍스트는 const로 못 박으면 숫자 표시가 안 되니까 분리
+          if (badge != null)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   "$badge",
