@@ -4,17 +4,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'backend/auth_service.dart';
-import 'backend/diary_firestore.dart';
-import 'cardpicker.dart' as cp;
+import '../backend/diary_repo.dart';
+import '../cardpicker.dart' as cp;
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
-import 'ui/layout_tokens.dart';
+import '../ui/layout_tokens.dart';
 // ✅ 공용 CTA 버튼 (저장/수정/삭제)
-import 'ui/app_buttons.dart';
+import '../ui/app_buttons.dart';
 
 // ✅ 공통 테마
-import 'theme/app_theme.dart';
+import '../theme/app_theme.dart';
 
 class WriteDiaryPage extends StatefulWidget {
   final DateTime? initialDate;
@@ -212,13 +211,11 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   }
 
   // ================== LOAD ==================
+  // ================== LOAD ==================
   Future<void> _loadDiary() async {
     setState(() => _loading = true);
     try {
-      final user = await AuthService.ensureSignedIn();
-      final uid = user.uid;
-
-      final data = await DiaryFirestore.read(uid: uid, date: _selectedDate);
+      final data = await DiaryRepo.I.read(date: _selectedDate);
       if (!mounted) return;
 
       _hydrating = true;
@@ -231,7 +228,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
           _beforeCtrl.text = '';
           _afterCtrl.text = '';
-          _afterUnlocked = false;
+          _afterUnlocked = _canUnlockAfter; // ✅ 오늘/과거면 바로 작성 가능
 
           _touched = false;
         });
@@ -252,7 +249,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
         _beforeCtrl.text = beforeText;
         _afterCtrl.text = afterText;
-        _afterUnlocked = _hasText(_afterCtrl.text);
+        _afterUnlocked = _canUnlockAfter || _hasText(_afterCtrl.text);
 
         _touched = false;
       });
@@ -266,6 +263,8 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     }
   }
 
+
+  // ================== SAVE ==================
   // ================== SAVE ==================
   Future<void> _save() async {
     if (_saving) {
@@ -289,33 +288,26 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     setState(() => _saving = true);
 
     try {
-      _toast('저장 준비 중…(로그인 확인)');
+      _toast('저장 중…(로컬)');
 
-      final user =
-      await AuthService.ensureSignedIn().timeout(const Duration(seconds: 10));
-      if (!mounted) return;
-
-      _toast('저장 중…(Firestore)');
-
-      await DiaryFirestore.save(
-        uid: user.uid,
+      await DiaryRepo.I.save(
         date: _selectedDate,
         cardCount: _cardCount,
         cards: _pickedCards,
         beforeText: _beforeCtrl.text.trim(),
         afterText: _afterUnlocked ? _afterCtrl.text.trim() : '',
-      ).timeout(const Duration(seconds: 12));
+      ).timeout(const Duration(seconds: 2));
 
       if (!mounted) return;
 
       _toast('저장 완료!');
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
 
       Navigator.of(context).pop(true);
     } on TimeoutException {
       if (!mounted) return;
-      _toast('저장이 너무 오래 걸려서 중단했어. 네트워크/Firestore 확인해줘!');
+      _toast('저장이 너무 오래 걸려서 중단했어. (기기 저장소 확인)');
     } catch (e) {
       if (!mounted) return;
       _toast('저장 실패: $e');
@@ -323,6 +315,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       if (mounted) setState(() => _saving = false);
     }
   }
+
 
   // ================== CARD PICK ==================
   void _autoPick() {
@@ -605,32 +598,62 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     Widget cardItem(int i, double cardW) {
       final has = _isRevealed && _pickedCards.length > i;
 
+      // ✅ 앞/뒷면 경로
+      final String path = has
+          ? 'asset/cards/${cp.kTarotFileNames[_pickedCards[i]]}'
+          : 'asset/cards/back.png';
+
+      // ✅ 앞/뒷면 글로우 전략
+      // - back: 은은한 골드 헤일로 + 살짝 라인 느낌
+      // - front: 글로우 거의 제거(카드 내용 선명)
+      final List<BoxShadow> shadows = [
+        // 공통: 기본 깊이감(블랙)
+        BoxShadow(
+          color: _a(Colors.black, has ? 0.18 : 0.16),
+          blurRadius: has ? 8 : 6,
+          offset: const Offset(0, 6),
+        ),
+
+        if (!has) ...[
+          // ✅ back 전용: 퍼지는 골드 빛(은은하게)
+          BoxShadow(
+            color: _a(AppTheme.gold, 0.22),
+            blurRadius: 22,
+            spreadRadius: 1.2,
+            offset: const Offset(0, 0),
+          ),
+          // ✅ back 전용: 바깥 가장자리 라인 느낌(아주 약하게)
+          BoxShadow(
+            color: _a(AppTheme.gold, 0.10),
+            blurRadius: 6,
+            spreadRadius: 0.2,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ];
+
       return SizedBox(
         width: cardW,
         child: AspectRatio(
           aspectRatio: 2 / 3,
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(cardR),
-              boxShadow: [
-                BoxShadow(
-                  color: _a(Colors.black, 0.14),
-                  blurRadius: 3,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              boxShadow: shadows,
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(cardR),
               child: Container(
-                color: _a(Colors.black, 0.10),
+                // ✅ back은 살짝 어둡게 받쳐주면 글로우가 더 고급스럽게 보임
+                color: _a(Colors.black, has ? 0.08 : 0.12),
                 alignment: Alignment.center,
                 child: Transform.scale(
+                  // ✅ 앞면은 살짝만(기존 느낌 유지), 뒷면은 확대 X
                   scale: has ? 1.03 : 1.00,
                   child: Image.asset(
-                    has
-                        ? 'asset/cards/${cp.kTarotFileNames[_pickedCards[i]]}'
-                        : 'asset/cards/back.png',
+                    path,
                     fit: BoxFit.contain,
                     alignment: Alignment.center,
                     filterQuality: FilterQuality.high,
@@ -642,6 +665,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
         ),
       );
     }
+
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -900,7 +924,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '내일이 되면 쓸 수 있어!',
+                      canUnlock ? '탭해서 실제 기록을 열어줘!' : '내일이 되면 쓸 수 있어!',
                       textAlign: TextAlign.center,
                       style: AppTheme.uiSmallLabel.copyWith(
                         color: _a(AppTheme.headerInk, 0.68),

@@ -2,19 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'theme/app_theme.dart';
+import '../theme/app_theme.dart';
 import 'list_diary.dart';
 import 'write_diary.dart';
-import 'ui/tarot_card_preview.dart';
+import '../ui/tarot_card_preview.dart';
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
-import 'ui/layout_tokens.dart';
+import '../ui/layout_tokens.dart';
 // ✅ 공용 CTA 버튼 (저장/수정/삭제)
-import 'ui/app_buttons.dart';
+import '../ui/app_buttons.dart';
 
-import 'backend/auth_service.dart';
-import 'backend/diary_firestore.dart';
-import 'cardpicker.dart' as cp;
+import '../backend/diary_repo.dart';
+import '../cardpicker.dart' as cp;
 
 enum DiaryViewMode { calendar, list }
 
@@ -36,6 +35,11 @@ class CalanderDiaryPage extends StatefulWidget {
 class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
   // ✅ 1) 여기(필드)에 컨트롤러 선언
   final ScrollController _sc = ScrollController();
+
+  // ✅ list_diary 카드 썸네일과 동일 규격
+  static const double _thumbW = 62.0;
+  static const double _thumbH = 108.0;
+  static const double _thumbGap = 10.0;
 
 
   // ✅ 2) initState() 바로 아래에 dispose 추가
@@ -83,8 +87,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
   DateTime _focusedMonth = DateTime.now();
   DateTime _selectedDay = DateTime.now();
-
-  String? _uid;
 
   bool _loadingDay = false;
   int _loadDayNonce = 0;
@@ -275,18 +277,40 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     );
 
     if (ok == true) {
-      // TODO: 실제 삭제 연결 (DiaryFirestore.delete 등)
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '삭제 실행(연결 전)',
-            style: GoogleFonts.gowunDodum(fontWeight: FontWeight.w800),
+      try {
+        await DiaryRepo.I.delete(date: _selectedDay);
+        if (!mounted) return;
+
+        // ✅ UI 즉시 갱신
+        final k = _key(_selectedDay);
+        setState(() {
+          _selectedHasEntry = false;
+          _selectedBefore = '';
+          _selectedAfter = '';
+          _selectedCards = <String>[];
+          _hasEntryKeys.remove(k);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '삭제 완료',
+              style: GoogleFonts.gowunDodum(fontWeight: FontWeight.w800),
+            ),
+            duration: const Duration(milliseconds: 1100),
           ),
-          duration: const Duration(milliseconds: 1200),
-        ),
-      );
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('삭제 실패: $e'),
+            duration: const Duration(milliseconds: 1400),
+          ),
+        );
+      }
     }
+
   }
 
   // ================== 데이터 로딩 ==================
@@ -296,10 +320,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     setState(() => _bootLoading = true);
 
     try {
-      final user = await AuthService.ensureSignedIn();
-      _uid = user.uid;
-
-      // ✅ 월 도트 + 선택일 데이터 모두 완료된 뒤에만 bootLoading 종료
+      // ✅ 로컬 DB는 로그인/uid 불필요
       await _loadMonthDots();
       await _loadSelectedDay();
     } catch (e) {
@@ -313,14 +334,10 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     }
   }
 
-  Future<void> _loadMonthDots() async {
-    if (_uid == null) return;
 
+  Future<void> _loadMonthDots() async {
     try {
-      final keys = await DiaryFirestore.listMonthEntryKeys(
-        uid: _uid!,
-        month: _focusedMonth,
-      );
+      final keys = await DiaryRepo.I.listMonthEntryKeys(month: _focusedMonth);
       if (!mounted) return;
       setState(() => _hasEntryKeys = keys);
     } catch (_) {
@@ -329,17 +346,14 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     }
   }
 
+
   Future<void> _loadSelectedDay() async {
-    if (_uid == null) return;
     final nonce = ++_loadDayNonce;
 
     setState(() => _loadingDay = true);
 
     try {
-      final data = await DiaryFirestore.read(
-        uid: _uid!,
-        date: _selectedDay,
-      );
+      final data = await DiaryRepo.I.read(date: _selectedDay);
 
       if (!mounted || nonce != _loadDayNonce) return;
 
@@ -352,7 +366,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
           _selectedAfter = '';
           _selectedCards = <String>[];
 
-          // 월 도트 Set도 정리(이 날짜가 원래 있던 경우 제거)
           _hasEntryKeys.remove(k);
         });
         return;
@@ -361,10 +374,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
       final beforeText = (data['beforeText'] ?? '').toString();
       final afterText = (data['afterText'] ?? '').toString();
 
-      final ids = (data['cards'] as List?)
-          ?.map((e) => (e as num).toInt())
-          .toList() ??
-          <int>[];
+      final ids = (data['cards'] as List?)?.map((e) => (e as num).toInt()).toList() ?? <int>[];
 
       String cardAssetPath(int id) {
         final safe = id.clamp(0, 77);
@@ -385,6 +395,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
       if (mounted) setState(() => _loadingDay = false);
     }
   }
+
 
   void _prevMonth() {
     setState(() {
@@ -742,7 +753,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                       secondChild: Padding(
                                         padding: const EdgeInsets.only(top: 6),
                                         child: SizedBox(
-                                          height: 120,
+                                          height: _thumbH, // ✅ 110 -> list_diary와 동일 높이 느낌
                                           child: Center(
                                             child: SingleChildScrollView(
                                               scrollDirection: Axis.horizontal,
@@ -751,12 +762,14 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: List.generate(cards.length, (idx) {
                                                   final path = cards[idx];
+
                                                   return Padding(
                                                     padding: EdgeInsets.only(
-                                                      right: idx == cards.length - 1 ? 0 : 8,
+                                                      right: idx == cards.length - 1 ? 0 : _thumbGap, // ✅ 8 -> 10
                                                     ),
                                                     child: SizedBox(
-                                                      width: 88,
+                                                      width: _thumbW, // ✅ 88 -> 62 (핵심)
+                                                      height: _thumbH,
                                                       child: InkWell(
                                                         borderRadius: BorderRadius.circular(10),
                                                         onTap: () {
@@ -768,22 +781,19 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                                         },
                                                         child: Hero(
                                                           tag: 'cal_card_$idx-$path',
-                                                          child: AspectRatio(
-                                                            aspectRatio: 2.0 / 3.1,
-                                                            child: ClipRRect(
-                                                              borderRadius: BorderRadius.circular(10),
-                                                              child: Align(
-                                                                alignment: Alignment.center,
-                                                                child: ClipRect(
-                                                                  child: Align(
-                                                                    alignment: Alignment.center,
-                                                                    widthFactor: _cardTrimWf,
-                                                                    heightFactor: _cardTrimHf,
-                                                                    child: Image.asset(
-                                                                      path,
-                                                                      fit: BoxFit.cover,
-                                                                      filterQuality: FilterQuality.high,
-                                                                    ),
+                                                          child: ClipRRect(
+                                                            borderRadius: BorderRadius.circular(10),
+                                                            child: Align(
+                                                              alignment: Alignment.center,
+                                                              child: ClipRect(
+                                                                child: Align(
+                                                                  alignment: Alignment.center,
+                                                                  widthFactor: _cardTrimWf,
+                                                                  heightFactor: _cardTrimHf,
+                                                                  child: Image.asset(
+                                                                    path,
+                                                                    fit: BoxFit.cover,
+                                                                    filterQuality: FilterQuality.high,
                                                                   ),
                                                                 ),
                                                               ),
@@ -793,13 +803,13 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                                       ),
                                                     ),
                                                   );
-
                                                 }),
                                               ),
                                             ),
                                           ),
                                         ),
                                       ),
+
                                     ),
                                   ],
                                 ),
@@ -809,12 +819,14 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                           ],
 
                           // 3) 텍스트 박스(내용)
+                          // 3) 텍스트 박스(내용)
                           SizedBox(
-                            height: 200,
+                            height: hasSelected ? 180 : 350, // ✅ 핵심: 일기 있으면 높이 넉넉히
+                            width: double.infinity,
                             child: Builder(
                               builder: (_) {
-                                // ✅✅ 핵심: bootLoading/loadingDay 동안은 무조건 로딩만
-                                final bool showLoading = _bootLoading || _loadingDay || _uid == null;
+                                final bool showLoading = _bootLoading || _loadingDay;
+
 
                                 if (showLoading) {
                                   return Center(
@@ -829,7 +841,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                   );
                                 }
 
-                                // ✅ 여기부터는 "진짜 판단"만
                                 if (!hasSelected) {
                                   return _EmptyDayCard(tsBody: _tsBody);
                                 }
@@ -842,7 +853,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                               },
                             ),
                           ),
-
 
                         ],
                       ),
@@ -1034,63 +1044,70 @@ class _EmptyDayCard extends StatelessWidget {
     final tSecondary = AppTheme.tSecondary;
     final tMuted = AppTheme.tMuted;
 
-    return _GlassCard(
-      bg: _a(Colors.white, 0.04),
-      border: _a(gold, 0.18),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: _a(Colors.white, 0.05),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: _a(gold, 0.18), width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.auto_awesome_rounded, size: 14, color: _a(gold, 0.85)),
-                  const SizedBox(width: 6),
-                  Text(
-                    '오늘의 기록',
-                    style: GoogleFonts.gowunDodum(
-                      color: _a(tSecondary, 0.85),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      height: 1.0,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 240), // ✅ 여기 숫자만 조절하면 됨
+      child: _GlassCard(
+        bg: _a(Colors.white, 0.04),
+        border: _a(gold, 0.18),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.max, // ✅ minHeight 채우기
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _a(Colors.white, 0.05),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: _a(gold, 0.18), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, size: 14, color: _a(gold, 0.85)),
+                    const SizedBox(width: 6),
+                    Text(
+                      '오늘의 기록',
+                      style: GoogleFonts.gowunDodum(
+                        color: _a(tSecondary, 0.85),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        height: 1.0,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              '아직 기록이 없어요',
-              style: GoogleFonts.gowunDodum(
-                color: _a(tPrimary, 0.92),
-                fontSize: 13.2,
-                fontWeight: FontWeight.w800,
-                height: 1.15,
+              const SizedBox(height: 18),
+              Text(
+                '아직 기록이 없어요',
+                style: GoogleFonts.gowunDodum(
+                  color: _a(tPrimary, 0.92),
+                  fontSize: 13.2,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '카드를 뽑고 한 줄만 적어도 충분해요.',
-              style: GoogleFonts.gowunDodum(
-                color: _a(tMuted, 0.92),
-                fontSize: 11.8,
-                fontWeight: FontWeight.w700,
-                height: 1.45,
+              const SizedBox(height: 10),
+              Text(
+                '카드를 뽑고 한 줄만 적어도 충분해요.',
+                style: GoogleFonts.gowunDodum(
+                  color: _a(tMuted, 0.92),
+                  fontSize: 11.8,
+                  fontWeight: FontWeight.w700,
+                  height: 1.45,
+                ),
               ),
-            ),
-            const Spacer(),
-          ],
+
+              // ✅ Spacer 대신 아래로 밀어내는 안전한 방법
+              const SizedBox(height: 18),
+            ],
+          ),
         ),
       ),
     );
+
   }
 }
 
