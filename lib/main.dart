@@ -51,6 +51,8 @@ class MainHomePage extends StatefulWidget {
 class _MainHomePageState extends State<MainHomePage> {
   static const backgroundColor = Color(0xFF2E294E);
 
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -232,6 +234,8 @@ class _HomeActionCardData {
     required this.onTap,
   });
 }
+
+
 
 class _HomeBigPanel extends StatelessWidget {
   final double width;

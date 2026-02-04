@@ -229,3 +229,149 @@ class AppDiaryPillButton extends StatelessWidget {
     );
   }
 }
+
+
+class AppFloatAction {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed; // null이면 disabled
+  final bool primary;            // true면 강조(저장 같은)
+  final bool visible;            // false면 렌더 안함
+
+  const AppFloatAction({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.primary = false,
+    this.visible = true,
+  });
+}
+
+/// ✅ 페이지 하단에 “떠있는” 액션바(저장/수정/삭제 등 공용)
+/// - 키보드 올라오면 같이 위로 올라감
+/// - visible=false 액션은 자동으로 숨김
+class AppFloatingActionBar extends StatelessWidget {
+  final List<AppFloatAction> actions;
+
+  /// 바깥 여백(디자인/안전영역)
+  final EdgeInsets margin;
+
+  const AppFloatingActionBar({
+    super.key,
+    required this.actions,
+    this.margin = const EdgeInsets.fromLTRB(16, 0, 16, 12),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = actions.where((a) => a.visible).toList();
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    // ✅ 키보드 올라오면 같이 위로
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final safeBottom = MediaQuery.of(context).padding.bottom;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: margin.copyWith(bottom: margin.bottom + safeBottom),
+          child: _GlassFloatBar(
+            child: Row(
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                for (int i = 0; i < items.length; i++) ...[
+                  Expanded(child: _FloatBtn(a: items[i])),
+                  if (i != items.length - 1) const SizedBox(width: 10),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassFloatBar extends StatelessWidget {
+  final Widget child;
+  const _GlassFloatBar({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    const r = 18.0;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(r),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: _a(AppTheme.panelFill, 0.52),
+          borderRadius: BorderRadius.circular(r),
+          border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: _a(Colors.black, 0.22),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _FloatBtn extends StatelessWidget {
+  final AppFloatAction a;
+  const _FloatBtn({required this.a});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = a.onPressed != null;
+
+    final Color borderC = a.primary
+        ? _a(AppTheme.gold, enabled ? 0.55 : 0.18)
+        : _a(AppTheme.tSecondary, enabled ? 0.45 : 0.18);
+
+    final Color bgC = a.primary
+        ? _a(AppTheme.gold, enabled ? 0.16 : 0.06)
+        : _a(Colors.white, enabled ? 0.03 : 0.015);
+
+    final Color iconC = a.primary
+        ? _a(AppTheme.gold, enabled ? 0.95 : 0.35)
+        : _a(AppTheme.tSecondary, enabled ? 0.90 : 0.35);
+
+    final Color textC = a.primary
+        ? _a(AppTheme.tPrimary, enabled ? 0.90 : 0.35)
+        : _a(AppTheme.tSecondary, enabled ? 0.90 : 0.35);
+
+    return SizedBox(
+      height: 44,
+      child: OutlinedButton.icon(
+        onPressed: a.onPressed,
+        icon: Icon(a.icon, size: 16, color: iconC),
+        label: Text(
+          a.label,
+          style: AppTheme.uiSmallLabel.copyWith(
+            color: textC,
+            fontSize: 13.2,
+            fontWeight: FontWeight.w900,
+            height: 1.0,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: bgC,
+          side: BorderSide(color: borderC, width: 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        ),
+      ),
+    );
+  }
+}

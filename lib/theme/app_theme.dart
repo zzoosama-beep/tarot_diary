@@ -148,3 +148,32 @@ class AppTheme {
   /// 일기 수정 아이콘 (연필)
   static const Color editBlue = Color(0xFF8FA2C8);
 }
+
+
+// ✅ 공용: 떠있는 유리 패널 데코 (보관함/캘린더 느낌)
+BoxDecoration glassPanelDecoration({
+  double radius = AppTheme.radius,
+  Color? fill,
+  Color? border,
+  bool shadow = true,
+}) {
+  Color a(Color c, double o) => c.withAlpha((o * 255).round());
+
+  final panelFill = fill ?? AppTheme.glassBg;          // 기존 패널 배경
+  final panelBorder = border ?? AppTheme.panelBorder; // 기존 패널 보더
+
+  return BoxDecoration(
+    color: panelFill,
+    borderRadius: BorderRadius.circular(radius),
+    border: Border.all(color: panelBorder),
+    boxShadow: shadow
+        ? [
+      BoxShadow(
+        color: a(Colors.black, 0.22),
+        blurRadius: 18,
+        offset: const Offset(0, 10),
+      ),
+    ]
+        : null,
+  );
+}

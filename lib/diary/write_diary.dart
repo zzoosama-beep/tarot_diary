@@ -367,26 +367,36 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== UI ==================
   @override
   Widget build(BuildContext context) {
+    // ✅ 플로팅 버튼 높이 + 바닥 여백
+    const double floatH = 44.0;
+    const double floatBottomGap = 14.0;
+
+    final viewInsetB = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
       body: _bg(
         child: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              // ✅ TOP + CENTER(스크롤)
-              Expanded(
+              // =========================
+              // MAIN (스크롤 영역)
+              // =========================
+              Positioned.fill(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
                     0,
                     LayoutTokens.scrollTopPad,
                     0,
                     LayoutTokens.scrollBottomBase +
-                        MediaQuery.of(context).viewInsets.bottom,
+                        viewInsetB +
+                        floatH +
+                        floatBottomGap +
+                        10,
                   ),
                   child: Column(
                     children: [
-                      // ✅ topbox: 좌/중/우 슬롯
                       TopBox(
                         left: Transform.translate(
                           offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
@@ -401,7 +411,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                       ),
                       const SizedBox(height: 14),
 
-                      // ✅ centerbox: 컨텐츠 폭 동일화
                       CenterBox(
                         child: Column(
                           children: [
@@ -429,14 +438,30 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                 ),
               ),
 
-              // ✅ bottombox: 저장하기 CTA
-              BottomBox(child: _buildSaveButton()),
+              // =========================
+              // FLOATING CTA (저장하기)
+              // =========================
+              Positioned(
+                left: LayoutTokens.pageHPad,
+                right: LayoutTokens.pageHPad,
+                bottom: floatBottomGap + viewInsetB,
+                child: IgnorePointer(
+                  ignoring: _saving,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeOut,
+                    opacity: viewInsetB > 0 ? 0.96 : 1.0,
+                    child: _buildSaveButton(),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+
 
   // ✅ TopBox 우측 슬롯: 날짜 pill
   Widget _buildTopRightDatePill() {
@@ -472,11 +497,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-      decoration: BoxDecoration(
-        color: AppTheme.glassBg,
-        borderRadius: BorderRadius.circular(AppTheme.radius),
-        border: Border.all(color: AppTheme.panelBorder),
-      ),
+      decoration: glassPanelDecoration(), // ✅ 그림자 포함 패널 데코
       child: Column(
         children: [
           _buildCardList(),
@@ -870,11 +891,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: BoxDecoration(
-        color: AppTheme.glassBg,
-        borderRadius: BorderRadius.circular(AppTheme.radius),
-        border: Border.all(color: AppTheme.panelBorder),
-      ),
+      decoration: glassPanelDecoration(), // ✅ 그림자 포함 패널 데코
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
