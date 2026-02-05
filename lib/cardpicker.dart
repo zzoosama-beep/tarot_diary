@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../ui/arcana_labels.dart';
 
 // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -17,88 +18,6 @@ const Color uiGoldSoft = Color(0xFFB6923A); // 브론즈 골드(노랑쨍 ↓)
 // ✅ "예상 기록"에서 쓰는 포인트 컬러를 공용으로
 const Color uiAccent = uiGoldSoft;
 const double uiAccentOpacity = 0.85;
-
-/// ✅ 78장 파일명 (0~77)
-const List<String> kTarotFileNames = [
-  "00-TheFool.png",
-  "01-TheMagician.png",
-  "02-TheHighPriestess.png",
-  "03-TheEmpress.png",
-  "04-TheEmperor.png",
-  "05-TheHierophant.png",
-  "06-TheLovers.png",
-  "07-TheChariot.png",
-  "08-Strength.png",
-  "09-TheHermit.png",
-  "10-WheelOfFortune.png",
-  "11-Justice.png",
-  "12-TheHangedMan.png",
-  "13-Death.png",
-  "14-Temperance.png",
-  "15-TheDevil.png",
-  "16-TheTower.png",
-  "17-TheStar.png",
-  "18-TheMoon.png",
-  "19-TheSun.png",
-  "20-Judgement.png",
-  "21-TheWorld.png",
-  "22-AceOfWands.png",
-  "23-TwoOfWands.png",
-  "24-ThreeOfWands.png",
-  "25-FourOfWands.png",
-  "26-FiveOfWands.png",
-  "27-SixOfWands.png",
-  "28-SevenOfWands.png",
-  "29-EightOfWands.png",
-  "30-NineOfWands.png",
-  "31-TenOfWands.png",
-  "32-PageOfWands.png",
-  "33-KnightOfWands.png",
-  "34-QueenOfWands.png",
-  "35-KingOfWands.png",
-  "36-AceOfCups.png",
-  "37-TwoOfCups.png",
-  "38-ThreeOfCups.png",
-  "39-FourOfCups.png",
-  "40-FiveOfCups.png",
-  "41-SixOfCups.png",
-  "42-SevenOfCups.png",
-  "43-EightOfCups.png",
-  "44-NineOfCups.png",
-  "45-TenOfCups.png",
-  "46-PageOfCups.png",
-  "47-KnightOfCups.png",
-  "48-QueenOfCups.png",
-  "49-KingOfCups.png",
-  "50-AceOfSwords.png",
-  "51-TwoOfSwords.png",
-  "52-ThreeOfSwords.png",
-  "53-FourOfSwords.png",
-  "54-FiveOfSwords.png",
-  "55-SixOfSwords.png",
-  "56-SevenOfSwords.png",
-  "57-EightOfSwords.png",
-  "58-NineOfSwords.png",
-  "59-TenOfSwords.png",
-  "60-PageOfSwords.png",
-  "61-KnightOfSwords.png",
-  "62-QueenOfSwords.png",
-  "63-KingOfSwords.png",
-  "64-AceOfPentacles.png",
-  "65-TwoOfPentacles.png",
-  "66-ThreeOfPentacles.png",
-  "67-FourOfPentacles.png",
-  "68-FiveOfPentacles.png",
-  "69-SixOfPentacles.png",
-  "70-SevenOfPentacles.png",
-  "71-EightOfPentacles.png",
-  "72-NineOfPentacles.png",
-  "73-TenOfPentacles.png",
-  "74-PageOfPentacles.png",
-  "75-KnightOfPentacles.png",
-  "76-QueenOfPentacles.png",
-  "77-KingOfPentacles.png",
-];
 
 /// ✅ 카드 선택 모달 열기 (반환: 카드 id 리스트)
 Future<List<int>?> openCardPicker({
@@ -139,13 +58,13 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
   void initState() {
     super.initState();
 
-    _deck = List<int>.generate(kTarotFileNames.length, (i) => i)
+    _deck = List<int>.generate(ArcanaLabels.kTarotFileNames.length, (i) => i)
       ..shuffle(Random());
 
     // ✅ preselected 유지
     for (final id in widget.preselected) {
       if (_picked.length >= widget.maxPickCount) break;
-      if (id < 0 || id >= kTarotFileNames.length) continue;
+      if (id < 0 || id >= ArcanaLabels.kTarotFileNames.length) continue;
       if (_picked.contains(id)) continue;
       _picked.add(id);
     }
@@ -288,7 +207,7 @@ class _CardPickerDialogState extends State<_CardPickerDialog> {
                       itemCount: _deck.length,
                       itemBuilder: (context, index) {
                         final id = _deck[index];
-                        final fn = kTarotFileNames[id];
+                        final fn = ArcanaLabels.kTarotFileNames[id];
 
                         final picked = _isPicked(id);
                         final limitReached = _picked.length >= widget.maxPickCount;
@@ -563,3 +482,4 @@ class _FlipTarotCardState extends State<FlipTarotCard>
     );
   }
 }
+

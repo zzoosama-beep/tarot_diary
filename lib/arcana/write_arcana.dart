@@ -1,28 +1,30 @@
 // lib/arcana/write_arcana.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// UI
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../ui/app_buttons.dart';
-// ✅ 공통 toast
 import '../ui/app_toast.dart';
 
-import '../cardpicker.dart' as cp;
-
+// Card
+import '../ui/arcana_labels.dart';
 import '../ui/tarot_card_preview.dart';
+
+// Left Float Tab
 import 'lefttab_arcana_sheet.dart';
+
+// DB
+import '../backend/arcana_repo.dart';
 
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
-// ✅ 라벤더 톤(색조)은 유지하고, "명도"만 살짝 내려서 어둡게
-Color _darken(Color c, double amount) {
-  final hsl = HSLColor.fromColor(c);
-  final l = (hsl.lightness - amount).clamp(0.0, 1.0);
-  return hsl.withLightness(l).toColor();
-}
-
+// =========================================================
+// ✅ Enums (이 파일에서 쓰는 타입은 여기서 확실히 정의)
+// =========================================================
 class WriteArcanaPage extends StatefulWidget {
   const WriteArcanaPage({super.key});
 
@@ -49,7 +51,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   final TextEditingController _myNoteC = TextEditingController();
   final TextEditingController _tagsC = TextEditingController();
 
-  // ================== DATA (DB X, 로컬) ==================
+  // ================== DATA (카드 메타는 항상 78장) ==================
   late final List<_ArcanaCard> _allCards = _buildAllCards();
 
   // 접힘, 펼치기
@@ -65,27 +67,32 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     super.dispose();
   }
 
+  // =========================================================
+  // ✅ 카드 메타 생성
+  // =========================================================
   List<_ArcanaCard> _buildAllCards() {
-    final names = cp.kTarotFileNames;
+    final names = ArcanaLabels.kTarotFileNames;
 
     final cards = <_ArcanaCard>[];
     for (int i = 0; i < names.length; i++) {
       final file = names[i];
-      final path = 'asset/cards/$file';
 
-      final isMajor = i <= 21; // 관례(0~21)
+      final parsedId = int.tryParse(file.substring(0, 2));
+      final id = parsedId ?? i;
+
+      final path = 'asset/cards/$file';
+      final isMajor = id <= 21;
       final suit = isMajor ? null : _guessSuitFromFilename(file);
 
-      cards.add(
-        _ArcanaCard(
-          id: i,
-          assetPath: path,
-          title: _prettyName(file, i, isMajor: isMajor, suit: suit),
-          isMajor: isMajor,
-          suit: suit ?? MinorSuit.unknown,
-        ),
-      );
+      cards.add(_ArcanaCard(
+        id: id,
+        assetPath: path,
+        title: _prettyName(file, id, isMajor: isMajor, suit: suit),
+        isMajor: isMajor,
+        suit: suit ?? MinorSuit.unknown,
+      ));
     }
+
     return cards;
   }
 
@@ -168,9 +175,13 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   _ArcanaCard? get _selectedCard {
     final id = _selectedId;
     if (id == null) return null;
-    if (id < 0 || id >= _allCards.length) return null;
-    return _allCards[id];
+    try {
+      return _allCards.firstWhere((c) => c.id == id);
+    } catch (_) {
+      return null;
+    }
   }
+
 
   bool get _canSave {
     if (_selectedId == null) return false;
@@ -180,22 +191,65 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     return hasAny;
   }
 
-  // ================== TOAST (공용) ==================
+  // =========================================================
+  // ✅ TOAST (공용)
+  // =========================================================
   void _toast(String msg, {double bottom = 110}) {
     if (!mounted) return;
     AppToast.show(context, msg, bottom: bottom);
   }
 
+  // =========================================================
+  // ✅ (핵심) 카드 선택 시: 기존 저장 데이터 있으면 자동 로드
+  // - ArcanaRepo에 read(...)가 없더라도 "dynamic"으로 호출해서
+  //   네 repo가 read를 구현해두면 그대로 동작함.
+  //   (없으면 조용히 무시)
+  // =========================================================
+  Future<void> _loadExistingNoteIfAny(int cardId) async {
+    try {
+      final repo = ArcanaRepo.I as dynamic;
+
+      // 기대 시그니처 예시:
+      // Future<Map<String,dynamic>?> read({required int cardId})
+      final data = await repo.read(cardId: cardId);
+
+      if (!mounted) return;
+
+      if (data == null) {
+        _meaningC.text = '';
+        _myNoteC.text = '';
+        _tagsC.text = '';
+        setState(() {});
+        return;
+      }
+
+      _meaningC.text = (data['meaning'] ?? '').toString();
+      _myNoteC.text = (data['myNote'] ?? '').toString();
+      _tagsC.text = (data['tags'] ?? '').toString();
+      setState(() {});
+    } catch (_) {
+      // read()가 없거나 실패해도 앱은 정상 동작 (저장만 가능)
+    }
+  }
+
+  // =========================================================
+  // ✅ 저장
+  // =========================================================
   void _trySave() async {
     if (_saving) return;
 
-    // ✅ 카드 미선택
-    if (_selectedId == null) {
+    final selected = _selectedCard;
+    if (selected == null) {
       _toast('카드를 먼저 선택해줘!');
       return;
     }
 
-    // ✅ 텍스트 전부 비어있음
+    // ✅ 표준 cardId는 "파일명 앞 2자리(00~77)" 기준으로 강제
+    final file = selected.assetPath.split('/').last; // 예: 00-TheFool.png
+    final parsed = (file.length >= 2) ? int.tryParse(file.substring(0, 2)) : null;
+    final id = parsed ?? selected.id;
+
+
     if (!_canSave) {
       _toast('내용을 한 줄이라도 적어줘!');
       return;
@@ -203,10 +257,34 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
     setState(() => _saving = true);
     try {
-      // TODO: 실제 저장 로직 여기에 넣기
-      // 예) await ArcanaRepo.save(...)
+      final card = _selectedCard;
+
+      await ArcanaRepo.I.save(
+        cardId: id,
+        title: selected.title,
+        meaning: _meaningC.text.trim(),
+        myNote: _myNoteC.text.trim(),
+        tags: _tagsC.text.trim(),
+      );
+
+      // ✅ DEBUG: 실제로 DB에 들어갔는지 즉시 확인
+      await ArcanaRepo.I.debugDump();
+
+      // ✅ 저장 직후: DB에서 다시 읽어서 “진짜 저장됐는지” 바로 검증
+      final saved = await ArcanaRepo.I.read(cardId: id);
+      if (saved == null) {
+        _toast('⚠️ 저장 직후 read=null (cardId=$id)  DB 저장이 안 됨');
+      } else {
+        _toast('✅ 저장 확인됨 (cardId=$id)');
+      }
+
 
       _toast('저장 완료!');
+
+      // ✅ 토스트 잠깐 보여주고 홈으로 이동
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
     } catch (e) {
       _toast('저장 실패: $e');
     } finally {
@@ -214,8 +292,10 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     }
   }
 
+  // =========================================================
+  // ✅ 카드 선택 Sheet
+  // =========================================================
   Future<void> _openPicker() async {
-    // ✅ sheet에는 ArcanaCardItem 타입으로 넘겨주기
     final items = _allCards
         .map(
           (c) => ArcanaCardItem(
@@ -258,7 +338,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     setState(() {
       _selectedId = pickedId;
 
-      final card = _allCards[pickedId];
+      final card = _allCards.firstWhere((c) => c.id == pickedId);
       if (card.isMajor) {
         _group = ArcanaGroup.major;
       } else {
@@ -266,9 +346,19 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         _suit = card.suit == MinorSuit.unknown ? _suit : card.suit;
       }
     });
+
+    // ✅ 선택 즉시 기존 저장 데이터 로드
+    final selected = _selectedCard;
+    if (selected != null) {
+      final id = selected.id; // 🔥 이미 int, 이미 index
+      await _loadExistingNoteIfAny(id);
+    }
+
   }
 
-  // ================== BUILD ==================
+  // =========================================================
+  // BUILD
+  // =========================================================
   @override
   Widget build(BuildContext context) {
     final selected = _selectedCard;
@@ -298,7 +388,6 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-
 
       body: SafeArea(
         child: Stack(
@@ -364,7 +453,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 }
 
 // =========================================================
-// 아래부터는 네 기존 그대로 유지
+// 아래부터는 네 기존 그대로 유지 (필요 위젯들)
 // =========================================================
 
 class _SelectedSummary extends StatelessWidget {
@@ -455,10 +544,6 @@ class _SelectedSummary extends StatelessWidget {
   }
 }
 
-// =========================================================
-// Common widgets
-// =========================================================
-
 class _GlassPanel extends StatelessWidget {
   final Widget child;
   const _GlassPanel({required this.child});
@@ -533,16 +618,33 @@ class _ArcanaCard {
 
 class _PickAndSummaryBox extends StatelessWidget {
   static const List<String> _majorKo = [
-    '바보', '마법사', '고위 여사제', '여황제', '황제', '교황',
-    '연인', '전차', '힘', '은둔자', '운명의 수레바퀴', '정의',
-    '매달린 사람', '죽음', '절제', '악마', '탑', '별',
-    '달', '태양', '심판', '세계',
+    '바보',
+    '마법사',
+    '고위 여사제',
+    '여황제',
+    '황제',
+    '교황',
+    '연인',
+    '전차',
+    '힘',
+    '은둔자',
+    '운명의 수레바퀴',
+    '정의',
+    '매달린 사람',
+    '죽음',
+    '절제',
+    '악마',
+    '탑',
+    '별',
+    '달',
+    '태양',
+    '심판',
+    '세계',
   ];
 
   final _ArcanaCard? selected;
   final VoidCallback onTap;
 
-  // ✅ 정석 주입
   final TextEditingController tagsC;
   final ValueChanged<String> onTagsChanged;
 
@@ -597,9 +699,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                               style: GoogleFonts.gowunDodum(
                                 fontSize: 17.0,
                                 fontWeight: FontWeight.w900,
-                                color: has
-                                    ? _a(AppTheme.gold, 0.95)
-                                    : _a(AppTheme.tSecondary, 0.85),
+                                color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.85),
                                 letterSpacing: -0.2,
                               ),
                             ),
@@ -682,7 +782,6 @@ class _PickAndSummaryBox extends StatelessWidget {
   }
 }
 
-/// ✅ 기존 _SelectedSummary를 "박스 없이 내용만"으로 만든 버전
 class _SelectedSummaryInner extends StatelessWidget {
   final _ArcanaCard? card;
   final TextEditingController tagsC;

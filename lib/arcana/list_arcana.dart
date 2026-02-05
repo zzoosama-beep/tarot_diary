@@ -3,19 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_theme.dart';
+import '../ui/app_buttons.dart';
 import '../ui/layout_tokens.dart';
-
-// ✅ (이미 프로젝트에 있다면) 78장 파일명 재사용
-import '../cardpicker.dart' as cp;
-
-// ✅ 공용 정렬
+import '../ui/arcana_labels.dart';
 import '../list_sorting.dart';
 
-// ✅ withOpacity 대체(프로젝트 공용 패턴)
+import '../backend/arcana_repo.dart';
+
+// ✅ withOpacity 대체
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
 class ListArcanaPage extends StatefulWidget {
   const ListArcanaPage({super.key});
+
 
   @override
   State<ListArcanaPage> createState() => _ListArcanaPageState();
@@ -29,33 +29,191 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
   ListSort _sort = ListSort.numberAsc;
   ArcanaFilter _filter = ArcanaFilter.all;
 
+  late Future<Map<int, Map<String, dynamic>>> _notesF;
+
   @override
   void dispose() {
     _searchC.dispose();
     super.dispose();
   }
 
-  // ================== DATA (DB 연결 X, 로컬 더미) ==================
-  List<_ArcanaItem> _buildItems() {
-    final names = cp.kTarotFileNames;
+  Widget _labelChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: _a(AppTheme.gold, 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _a(AppTheme.gold, 0.35), width: 1),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.gowunDodum(
+          fontSize: 12,
+          height: 1.0,
+          color: _a(AppTheme.gold, 0.95),
+          fontWeight: FontWeight.w900,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+
+  Widget _buildNotePreview(Map<String, dynamic>? note) {
+    if (note == null) {
+      return Text(
+        '아직 등록된 내용이 없어요',
+        style: TextStyle(
+          fontSize: 12.5,
+          height: 1.25,
+          color: _a(AppTheme.tMuted, 0.9),
+        ),
+      );
+    }
+
+    // ✅ DB 매핑
+    final keyword = (note['keyword'] ?? note['keywords'] ?? note['tags'] ?? '').toString().trim();
+    final meaning = (note['meaning'] ?? '').toString().trim();
+    final myNote  = (note['myNote'] ?? note['my_note'] ?? '').toString().trim();
+
+    // 전부 비었으면 “없어요”
+    if (keyword.isEmpty && meaning.isEmpty && myNote.isEmpty) {
+      return Text(
+        '아직 등록된 내용이 없어요',
+        style: TextStyle(
+          fontSize: 12.5,
+          height: 1.25,
+          color: _a(AppTheme.tMuted, 0.9),
+        ),
+      );
+    }
+
+    Widget valueText(String v) {
+      return Text(
+        v.isEmpty ? '-' : v,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.gowunDodum(
+          fontSize: 12.2,
+          fontWeight: FontWeight.w700,
+          color: _a(AppTheme.tPrimary, 0.92),
+          height: 1.15,
+        ),
+      );
+    }
+
+    Widget rowLine(String label, String value) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _labelChip(label),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.gowunDodum(
+                fontSize: 12.2,
+                fontWeight: FontWeight.w700,
+                color: _a(AppTheme.tPrimary, 0.92),
+                height: 1.0,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _a(Colors.black, 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _a(AppTheme.gold, 0.14), width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          rowLine('키워드', keyword),
+          const SizedBox(height: 8),
+          rowLine('기본 의미', meaning),
+          const SizedBox(height: 8),
+          rowLine('나의 해석', myNote),
+        ],
+      ),
+    );
+  }
+
+
+
+  Future<Map<int, Map<String, dynamic>>> _loadNotes() async {
+    final rows = await ArcanaRepo.I.listAll();
+
+    // ✅ 여기 무조건 찍혀야 함
+    debugPrint('[LIST_ARCANA] listAll rowCount=${rows.length}');
+    for (final r in rows) {
+      debugPrint('[LIST_ARCANA] row cardId=${r['cardId']} title=${r['title']}');
+    }
+
+    final map = <int, Map<String, dynamic>>{};
+    for (final r in rows) {
+      final raw = r['cardId'];
+      final id = (raw is int)
+          ? raw
+          : (raw is num)
+          ? raw.toInt()
+          : int.tryParse(raw.toString());
+
+      if (id == null) {
+        debugPrint('[LIST_ARCANA] ⚠️ invalid cardId raw=$raw row=$r');
+        continue;
+      }
+      map[id] = r;
+    }
+
+
+    debugPrint('[LIST_ARCANA] notes mapSize=${map.length}');
+    debugPrint('[LIST_ARCANA] has 0? ${map.containsKey(0)} / has 6? ${map.containsKey(6)} / has 13? ${map.containsKey(13)} / has 27? ${map.containsKey(27)}');
+
+    return map;
+  }
+
+
+  // ================== CARD META ==================
+  List<_ArcanaItem> _buildItems(Map<int, Map<String, dynamic>> notes) {
+    final names = ArcanaLabels.kTarotFileNames;
     final items = <_ArcanaItem>[];
 
     for (int i = 0; i < names.length; i++) {
       final filename = names[i];
       final path = 'asset/cards/$filename';
 
-      // ✅ "00-TheFool.png" 앞의 2자리 숫자를 id로 사용 (순서 바뀌어도 안전)
-      final parsedId = int.tryParse(filename.substring(0, 2));
-      final id = parsedId ?? i;
+      // ✅ 파일명 "00-xxxx.png"에서 표준 id 추출
+      final parsed = (filename.length >= 2) ? int.tryParse(filename.substring(0, 2)) : null;
+      final id = parsed ?? i; // fallback
 
-      items.add(_ArcanaItem(
-        id: id,
-        title: _prettyName(filename),
-        assetPath: path,
-      ));
+      final note = notes[id];
+
+
+      items.add(
+        _ArcanaItem(
+          id: id,
+          title: _prettyName(filename),
+          assetPath: path,
+          note: note,
+        ),
+      );
     }
 
-    // ✅ Filter (칩 기준)
+    // Filter
     final filtered = items.where((e) {
       switch (_filter) {
         case ArcanaFilter.all:
@@ -64,8 +222,6 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
           return e.id <= 21;
         case ArcanaFilter.minor:
           return e.id >= 22;
-
-      // 마이너 수트(관례): 22~35 Wands, 36~49 Cups, 50~63 Swords, 64~77 Pentacles
         case ArcanaFilter.wands:
           return e.id >= 22 && e.id <= 35;
         case ArcanaFilter.cups:
@@ -77,15 +233,16 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
       }
     }).toList();
 
-    // ✅ Search
+    // Search
     final q = _query.trim().toLowerCase();
     final searched = q.isEmpty
         ? filtered
         : filtered.where((e) {
-      return e.title.toLowerCase().contains(q) || e.id.toString().contains(q);
+      return e.title.toLowerCase().contains(q) ||
+          e.id.toString().contains(q);
     }).toList();
 
-    // ✅ Sort (공용)
+    // Sort
     searched.sort(
           (a, b) => compareListSort(
         _sort,
@@ -100,340 +257,320 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
   }
 
   static String _prettyName(String filename) {
-    var s = filename;
-    s = s.replaceAll('.png', '');
+    var s = filename.replaceAll('.png', '');
     final dash = s.indexOf('-');
     if (dash >= 0 && dash + 1 < s.length) s = s.substring(dash + 1);
-    s = s.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
+    s = s.replaceAllMapped(
+      RegExp(r'([a-z])([A-Z])'),
+          (m) => '${m[1]} ${m[2]}',
+    );
     return s;
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _notesF = _loadNotes();
+  }
+
+
+  @override
+  void initState() {
+    super.initState();
+    _notesF = _loadNotes();
+  }
+
 
   // ================== UI ==================
   @override
   Widget build(BuildContext context) {
-    final items = _buildItems();
-
-    return Scaffold(
-      backgroundColor: AppTheme.bgSolid,
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ✅ TOP 고정
-            Padding(
-              padding: EdgeInsets.only(top: LayoutTokens.scrollTopPad),
-              child: TopBox(
-                left: Transform.translate(
-                  offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
-                  child: _TightIconButton(
-                    icon: Icons.arrow_back_rounded,
-                    color: AppTheme.headerInk,
-                    onTap: () => Navigator.of(context).pop(),
+    return FutureBuilder<Map<int, Map<String, dynamic>>>(
+      future: _notesF,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return Scaffold(
+            backgroundColor: AppTheme.bgSolid,
+            body: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'LIST_ARCANA Future error:\n${snap.error}',
+                    style: const TextStyle(color: Colors.red),
                   ),
                 ),
-                title: Text('타로카드 도감', style: AppTheme.title),
-                right: const SizedBox.shrink(), // ✅ 비움
               ),
             ),
+          );
+        }
 
-            const SizedBox(height: 14),
+        if (snap.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-            // ✅ 검색 + 칩 고정 (CenterBox 안에 그대로)
-            CenterBox(
-              child: Column(
-                children: [
-                  // ✅ 검색 + 정렬 한 줄
-                  // ✅ 검색 + 칩을 하나의 박스로 묶기
-                  _GlassLine(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                      child: Column(
-                        children: [
-                          // 1) 검색 + 정렬 한 줄 (박스 안)
-                          Row(
+        final notes = snap.data ?? {};
+        final items = _buildItems(notes);
+
+
+      return Scaffold(
+          backgroundColor: AppTheme.bgSolid,
+          resizeToAvoidBottomInset: true,
+          body: SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: LayoutTokens.scrollTopPad),
+                TopBox(
+                  left: Transform.translate(
+                    offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
+                    child: _TightIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      color: AppTheme.headerInk,
+                      onTap: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  title: Text('타로카드 도감', style: AppTheme.title),
+                  right: const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 14),
+
+                // 검색 / 필터
+                CenterBox(
+                  child: Column(
+                    children: [
+                      _GlassLine(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                          child: Column(
                             children: [
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.search_rounded,
-                                      size: 20, // ✅ 살짝 키움 (18 → 20)
-                                      color: _a(AppTheme.gold, 0.90), // ✅ 칩/정렬과 동일한 골드 톤
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: _a(Colors.black, 0.06),
-                                          borderRadius: BorderRadius.circular(10),
-                                          border: Border.all(
-                                            color: _a(AppTheme.gold, 0.16),
-                                            width: 1,
-                                          ),
+                              // 🔍 검색 + 정렬
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.search_rounded,
+                                          size: 20,
+                                          color: _a(AppTheme.gold, 0.90),
                                         ),
-                                        child: TextField(
-                                          controller: _searchC,
-                                          onChanged: (v) => setState(() => _query = v),
-                                          style: GoogleFonts.gowunDodum(
-                                            fontSize: 13.2,
-                                            fontWeight: FontWeight.w800,
-                                            color: _a(AppTheme.tPrimary, 0.95),
-                                            height: 1.2,
-                                          ),
-                                          decoration: InputDecoration(
-                                            hintText: '카드이름/번호',
-                                            hintStyle: GoogleFonts.gowunDodum(
-                                              fontSize: 12.6,
-                                              fontWeight: FontWeight.w700,
-                                              color: _a(AppTheme.tSecondary, 0.85),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                                            decoration: BoxDecoration(
+                                              color: _a(Colors.black, 0.06),
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: _a(AppTheme.gold, 0.16),
+                                                width: 1,
+                                              ),
                                             ),
-                                            border: InputBorder.none,
-                                            isDense: true,
-                                            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                                            child: TextField(
+                                              controller: _searchC,
+                                              onChanged: (v) => setState(() => _query = v),
+                                              style: GoogleFonts.gowunDodum(
+                                                fontSize: 13.2,
+                                                fontWeight: FontWeight.w800,
+                                                color: _a(AppTheme.tPrimary, 0.95),
+                                              ),
+                                              decoration: InputDecoration(
+                                                hintText: '카드이름/번호',
+                                                hintStyle: GoogleFonts.gowunDodum(
+                                                  fontSize: 12.6,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _a(AppTheme.tSecondary, 0.85),
+                                                ),
+                                                border: InputBorder.none,
+                                                isDense: true,
+                                                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                      ),
+                                      ],
                                     ),
-
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _SortPill(
+                                    value: _sort,
+                                    onChanged: (v) => setState(() => _sort = v),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              _SortPill(
-                                value: _sort,
-                                onChanged: (v) => setState(() => _sort = v),
+
+                              const SizedBox(height: 8),
+                              Divider(
+                                height: 1,
+                                thickness: 1,
+                                indent: 4,
+                                endIndent: 4,
+                                color: _a(AppTheme.gold, 0.18),
+                              ),
+                              const SizedBox(height: 8),
+
+                              // 🏷 필터 칩
+                              SizedBox(
+                                height: 36,
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      AppFilterChipPill(
+                                        label: '전체',
+                                        selected: _filter == ArcanaFilter.all,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.all),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '메이저',
+                                        selected: _filter == ArcanaFilter.major,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.major),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '마이너',
+                                        selected: _filter == ArcanaFilter.minor,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.minor),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '완즈',
+                                        selected: _filter == ArcanaFilter.wands,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.wands),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '컵',
+                                        selected: _filter == ArcanaFilter.cups,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.cups),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '소드',
+                                        selected: _filter == ArcanaFilter.swords,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.swords),
+                                      ),
+                                      AppFilterChipPill(
+                                        label: '펜타클',
+                                        selected: _filter == ArcanaFilter.pentacles,
+                                        onTap: () => setState(() => _filter = ArcanaFilter.pentacles),
+                                      ),
+                                    ]
+                                        .expand((w) => [w, const SizedBox(width: 6)])
+                                        .toList()
+                                      ..removeLast(),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-
-                          Divider(
-                            height: 1,
-                            thickness: 1,
-                            indent: 4,
-                            endIndent: 4,
-                            color: _a(AppTheme.gold, 0.18),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          // 2) 칩 라인 (박스 안)
-                          SizedBox(
-                            height: 36, // ✅ 칩 줄 높이 고정(깔끔)
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  _FilterChipPill(
-                                    label: '전체',
-                                    selected: _filter == ArcanaFilter.all,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.all),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '메이저',
-                                    selected: _filter == ArcanaFilter.major,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.major),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '마이너',
-                                    selected: _filter == ArcanaFilter.minor,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.minor),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '완즈',
-                                    selected: _filter == ArcanaFilter.wands,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.wands),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '컵',
-                                    selected: _filter == ArcanaFilter.cups,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.cups),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '소드',
-                                    selected: _filter == ArcanaFilter.swords,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.swords),
-                                  ),
-                                  _FilterChipPill(
-                                    label: '펜타클',
-                                    selected: _filter == ArcanaFilter.pentacles,
-                                    onTap: () => setState(() => _filter = ArcanaFilter.pentacles),
-                                  ),
-                                ].expand((w) => [w, const SizedBox(width: 6)]).toList()
-                                  ..removeLast(),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-
-
-
-                  const SizedBox(height: 10),
-
-
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // ✅ 리스트만 스크롤
-            Expanded(
-              child: (items.isEmpty)
-                  ? const Center(
-                child: _EmptyState(
-                  text: '검색 결과가 없어요.',
-                  sub: '다른 키워드로 찾아보자.',
-                ),
-              )
-                  : ListView.separated(
-                padding: EdgeInsets.fromLTRB(
-                  24.0, // ← CenterBox 좌우 여백과 동일한 값
-                  0,
-                  24.0,
-                  LayoutTokens.scrollBottomBase +
-                      MediaQuery.of(context).viewInsets.bottom,
                 ),
 
-                itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) {
-                  final it = items[i];
-                  return _ArcanaListTile(
-                    item: it,
-                    onTap: () {},
-                  );
-                },
-              ),
+                const SizedBox(height: 10),
+
+                Expanded(
+                  child: items.isEmpty
+                      ? const _EmptyState(
+                    text: '검색 결과가 없어요.',
+                    sub: '다른 키워드로 찾아보자.',
+                  )
+                      : ListView.separated(
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      0,
+                      24,
+                      LayoutTokens.scrollBottomBase +
+                          MediaQuery.of(context).viewInsets.bottom,
+                    ),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, i) {
+                      return _ArcanaListTile(
+                        item: items[i],
+                        notePreviewBuilder: _buildNotePreview,
+                      );
+                    },
+
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
-
   }
 }
 
 // =========================================================
-// ✅ Models / Enums
+// MODELS
 // =========================================================
 class _ArcanaItem {
   final int id;
   final String title;
   final String assetPath;
+  final Map<String, dynamic>? note;
 
   const _ArcanaItem({
     required this.id,
     required this.title,
     required this.assetPath,
+    required this.note,
   });
 }
 
-// ✅ 필터 확장 (칩용)
 enum ArcanaFilter { all, major, minor, wands, cups, swords, pentacles }
 
 // =========================================================
-// ✅ UI bits
+// TILE
 // =========================================================
-class _GlassLine extends StatelessWidget {
-  final Widget child;
-  const _GlassLine({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _a(AppTheme.panelFill, 0.50),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _a(AppTheme.gold, 0.18), width: 1),
-        ),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _FilterChipPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterChipPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = selected
-        ? _a(AppTheme.gold, 0.12)         // ✅ 선택: 살짝 골드 배경
-        : _a(AppTheme.panelFill, 0.18);   // ✅ 비선택: 패널 톤
-
-    final bd = selected
-        ? _a(AppTheme.gold, 0.40)         // ✅ 선택: 골드 보더
-        : _a(AppTheme.gold, 0.14);        // ✅ 비선택: 아주 약한 골드 보더
-
-    final fg = selected
-        ? _a(AppTheme.gold, 0.92)         // ✅ 선택: 골드 글씨
-        : _a(AppTheme.tSecondary, 0.88);  // ✅ 비선택: 서브톤 글씨 (중요!)
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: bd, width: 1),
-          ),
-          child: Text(
-            label,
-            style: GoogleFonts.gowunDodum(
-              fontSize: 12.8,
-              fontWeight: FontWeight.w900,
-              color: fg,
-              height: 1.0,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ArcanaListTile extends StatelessWidget {
   final _ArcanaItem item;
-  final VoidCallback onTap;
+  final Widget Function(Map<String, dynamic>? note) notePreviewBuilder;
 
   const _ArcanaListTile({
     required this.item,
-    required this.onTap,
+    required this.notePreviewBuilder,
   });
+
 
   @override
   Widget build(BuildContext context) {
-    const r = 18.0;
+    final hasNote = item.note != null;
+    final meaning = (item.note?['meaning'] ?? '').toString();
+    final myNote = (item.note?['myNote'] ?? '').toString();
+    final tags = (item.note?['tags'] ?? '').toString();
+
+    final en = item.title; // 이미 prettyName 되어있음
+    final filename = item.assetPath.split('/').last; // "22-AceOfWands.png"
+    final titleLine = ArcanaLabels.listTitle(
+      id: item.id,
+      enTitle: en,
+      filename: filename,
+    );
+
+
+    final summary = [
+      if (tags.isNotEmpty) tags,
+      if (meaning.isNotEmpty) meaning,
+      if (myNote.isNotEmpty) myNote,
+    ].join(' · ');
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(r),
+        borderRadius: BorderRadius.circular(18),
+        onTap: () {
+          // TODO: write_arcana로 이동(cardId 전달)
+        },
         child: Ink(
           decoration: BoxDecoration(
-            color: _a(AppTheme.panelFill, 0.58),
-            borderRadius: BorderRadius.circular(r),
-            border: Border.all(color: _a(AppTheme.gold, 0.18), width: 1),
+            color: _a(AppTheme.panelFill, hasNote ? 0.72 : 0.50),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: hasNote ? _a(AppTheme.gold, 0.45) : _a(AppTheme.gold, 0.18),
+            ),
             boxShadow: [
               BoxShadow(
                 color: _a(Colors.black, 0.12),
@@ -443,22 +580,19 @@ class _ArcanaListTile extends StatelessWidget {
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            padding: const EdgeInsets.all(12),
             child: Row(
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Container(
+                  child: Image.asset(
+                    item.assetPath,
                     width: 46,
                     height: 60,
-                    color: _a(Colors.black, 0.10),
-                    child: Image.asset(
-                      item.assetPath,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Icon(
-                        Icons.style_rounded,
-                        color: _a(AppTheme.tSecondary, 0.85),
-                      ),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Icon(
+                      Icons.style_rounded,
+                      color: _a(AppTheme.tSecondary, 0.85),
                     ),
                   ),
                 ),
@@ -468,7 +602,7 @@ class _ArcanaListTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '#${item.id.toString().padLeft(2, '0')}  ${item.title}',
+                        titleLine,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.gowunDodum(
@@ -478,22 +612,18 @@ class _ArcanaListTile extends StatelessWidget {
                           letterSpacing: -0.2,
                         ),
                       ),
+
                       const SizedBox(height: 4),
-                      Text(
-                        '기록/설명(추후) · 태그/메모(추후)',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.gowunDodum(
-                          fontSize: 12.3,
-                          fontWeight: FontWeight.w700,
-                          color: _a(AppTheme.tSecondary, 0.92),
-                        ),
-                      ),
+                      notePreviewBuilder(item.note),
+
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(Icons.chevron_right_rounded, size: 20, color: _a(AppTheme.tSecondary, 0.65)),
+                Icon(
+                  hasNote ? Icons.bookmark_rounded : Icons.chevron_right_rounded,
+                  color: _a(AppTheme.gold, hasNote ? 0.9 : 0.5),
+                ),
               ],
             ),
           ),
@@ -503,6 +633,9 @@ class _ArcanaListTile extends StatelessWidget {
   }
 }
 
+// =========================================================
+// ETC UI
+// =========================================================
 class _EmptyState extends StatelessWidget {
   final String text;
   final String sub;
@@ -545,6 +678,110 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+// ✅ (누락됐던) GlassLine
+class _GlassLine extends StatelessWidget {
+  final Widget child;
+  const _GlassLine({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        decoration: BoxDecoration(
+          color: _a(AppTheme.panelFill, 0.50),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _a(AppTheme.gold, 0.18), width: 1),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+// ✅ (누락됐던) SortPill
+class _SortPill extends StatelessWidget {
+  final ListSort value;
+  final ValueChanged<ListSort> onChanged;
+  const _SortPill({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 30,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: _a(AppTheme.panelFill, 0.28),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _a(AppTheme.gold, 0.45),
+          width: 1,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+          ),
+          child: DropdownButton<ListSort>(
+            value: value,
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+            isDense: true,
+            iconSize: 18,
+            borderRadius: BorderRadius.circular(12),
+            dropdownColor: _a(AppTheme.panelFill, 0.95),
+            iconEnabledColor: _a(AppTheme.gold, 0.85),
+            selectedItemBuilder: (context) {
+              return ListSort.values.map((s) {
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _shortSortLabel(s),
+                    style: GoogleFonts.gowunDodum(
+                      fontSize: 12.4,
+                      fontWeight: FontWeight.w900,
+                      color: _a(AppTheme.gold, 0.92),
+                      height: 1.0,
+                    ),
+                  ),
+                );
+              }).toList();
+            },
+            style: GoogleFonts.gowunDodum(
+              fontSize: 12.4,
+              fontWeight: FontWeight.w900,
+              color: _a(AppTheme.gold, 0.92),
+              height: 1.0,
+            ),
+            items: ListSort.values
+                .map((s) => DropdownMenuItem<ListSort>(
+              value: s,
+              child: Text(listSortLabel(s)),
+            ))
+                .toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _shortSortLabel(ListSort s) {
+  switch (s) {
+    case ListSort.numberAsc:
+      return '번호↑';
+    case ListSort.numberDesc:
+      return '번호↓';
+    case ListSort.nameAsc:
+      return '이름↑';
+    case ListSort.nameDesc:
+      return '이름↓';
+  }
+}
+
 class _TightIconButton extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -575,91 +812,4 @@ class _TightIconButton extends StatelessWidget {
   }
 }
 
-class _SortPill extends StatelessWidget {
-  final ListSort value;
-  final ValueChanged<ListSort> onChanged;
-  const _SortPill({required this.value, required this.onChanged});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 30, // ✅ 전체 높이 다운
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: _a(AppTheme.panelFill, 0.28),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: _a(AppTheme.gold, 0.45),
-          width: 1,
-        ),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-          ),
-          child: DropdownButton<ListSort>(
-            value: value,
-            onChanged: (v) {
-              if (v != null) onChanged(v);
-            },
-
-            isDense: true,
-            iconSize: 18, // ✅ 아이콘만 살짝 줄이기
-            borderRadius: BorderRadius.circular(12),
-            dropdownColor: _a(AppTheme.panelFill, 0.95),
-            iconEnabledColor: _a(AppTheme.gold, 0.85),
-
-            selectedItemBuilder: (context) {
-              return ListSort.values.map((s) {
-                return Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _shortSortLabel(s),
-                    style: GoogleFonts.gowunDodum(
-                      fontSize: 12.4,
-                      fontWeight: FontWeight.w900,
-                      color: _a(AppTheme.gold, 0.92),
-                      height: 1.0,
-                    ),
-                  ),
-                );
-              }).toList();
-            },
-
-            style: GoogleFonts.gowunDodum(
-              fontSize: 12.4,
-              fontWeight: FontWeight.w900,
-              color: _a(AppTheme.gold, 0.92),
-              height: 1.0,
-            ),
-
-            items: ListSort.values.map(
-                  (s) => DropdownMenuItem<ListSort>(
-                value: s,
-                child: Text(listSortLabel(s)),
-              ),
-            ).toList(),
-          ),
-        ),
-      ),
-
-    );
-  }
-}
-
-
-
-String _shortSortLabel(ListSort s) {
-  switch (s) {
-    case ListSort.numberAsc:
-      return '번호↑';
-    case ListSort.numberDesc:
-      return '번호↓';
-    case ListSort.nameAsc:
-      return '이름↑';
-    case ListSort.nameDesc:
-      return '이름↓';
-  }
-}

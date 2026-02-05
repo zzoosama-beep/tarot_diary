@@ -2,10 +2,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:tarot_diary/cardpicker.dart' as cp;
 import 'package:flutter/material.dart';
+import '../ui/arcana_labels.dart';
 
 import '../backend/diary_repo.dart';
-import '../cardpicker.dart' as cp;
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
 import '../ui/layout_tokens.dart';
@@ -577,7 +578,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
       // ✅ 앞/뒷면 경로
       final String path = has
-          ? 'asset/cards/${cp.kTarotFileNames[_pickedCards[i]]}'
+          ? 'asset/cards/${ArcanaLabels.kTarotFileNames[_pickedCards[i]]}'
           : 'asset/cards/back.png';
 
       // ✅ 글로우/그림자

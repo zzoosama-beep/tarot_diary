@@ -536,3 +536,76 @@ class FabSlot extends StatelessWidget {
     );
   }
 }
+
+
+/// ------------------------------------------------------------
+/// ✅ 공용 "필터 칩" Pill 버튼 (리스트/도감/필터 어디서든 재사용)
+/// - list_arcana.dart의 _FilterChipPill을 공용으로 승격
+/// ------------------------------------------------------------
+class AppFilterChipPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  /// 옵션(필요할 때 조절)
+  final EdgeInsets padding;
+  final double fontSize;
+  final double radius;
+
+  const AppFilterChipPill({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    this.fontSize = 12.8,
+    this.radius = 999,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+
+    final bg = selected
+        ? _a(AppTheme.gold, 0.12) // 선택: 살짝 골드 배경
+        : _a(AppTheme.panelFill, 0.18); // 비선택: 패널 톤
+
+    final bd = selected
+        ? _a(AppTheme.gold, 0.40) // 선택: 골드 보더
+        : _a(AppTheme.gold, 0.14); // 비선택: 약한 골드 보더
+
+    final fg = selected
+        ? _a(AppTheme.gold, enabled ? 0.92 : 0.40) // 선택: 골드 글씨
+        : _a(AppTheme.tSecondary, enabled ? 0.88 : 0.40); // 비선택: 서브톤 글씨
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(radius),
+        splashColor: _a(AppTheme.gold, 0.12),
+        highlightColor: _a(AppTheme.gold, 0.06),
+        child: Ink(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: enabled ? bg : _a(bg, 0.55),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: bd, width: 1),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.gowunDodum(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w900,
+              color: fg,
+              height: 1.0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+

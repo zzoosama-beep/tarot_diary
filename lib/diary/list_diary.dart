@@ -1,6 +1,7 @@
 // list_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../ui/arcana_labels.dart';
 
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
@@ -8,7 +9,6 @@ import '../ui/app_buttons.dart';
 
 import 'calander_diary.dart'; // 캘린더로 전환 (페이드)
 import '../backend/diary_repo.dart';
-import '../cardpicker.dart' as cp;
 import 'write_diary.dart';
 import '../main_home_page.dart';
 import '../ui/tarot_card_preview.dart';
@@ -617,7 +617,7 @@ class _CardThumbRow extends StatelessWidget {
 
   String _assetOf(int id) {
     final safe = id.clamp(0, 77);
-    return 'asset/cards/${cp.kTarotFileNames[safe]}';
+    return 'asset/cards/${ArcanaLabels.kTarotFileNames[safe]}';
   }
 
   @override

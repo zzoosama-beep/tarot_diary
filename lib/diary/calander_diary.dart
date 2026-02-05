@@ -1,6 +1,7 @@
 // calander_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:tarot_diary/ui/arcana_labels.dart';
 
 import '../theme/app_theme.dart';
 import 'list_diary.dart';
@@ -378,7 +379,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
       String cardAssetPath(int id) {
         final safe = id.clamp(0, 77);
-        return 'asset/cards/${cp.kTarotFileNames[safe]}';
+        return 'asset/cards/${ArcanaLabels.kTarotFileNames[safe]}';
       }
 
       final cards = ids.map(cardAssetPath).toList();
