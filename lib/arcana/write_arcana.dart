@@ -5,6 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../ui/app_buttons.dart';
+// ✅ 공통 toast
+import '../ui/app_toast.dart';
+
 import '../cardpicker.dart' as cp;
 
 import '../ui/tarot_card_preview.dart';
@@ -12,6 +15,13 @@ import 'lefttab_arcana_sheet.dart';
 
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
+
+// ✅ 라벤더 톤(색조)은 유지하고, "명도"만 살짝 내려서 어둡게
+Color _darken(Color c, double amount) {
+  final hsl = HSLColor.fromColor(c);
+  final l = (hsl.lightness - amount).clamp(0.0, 1.0);
+  return hsl.withLightness(l).toColor();
+}
 
 class WriteArcanaPage extends StatefulWidget {
   const WriteArcanaPage({super.key});
@@ -45,6 +55,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   // 접힘, 펼치기
   bool _meaningOpen = true;
   bool _myNoteOpen = true;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -169,6 +180,40 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     return hasAny;
   }
 
+  // ================== TOAST (공용) ==================
+  void _toast(String msg, {double bottom = 110}) {
+    if (!mounted) return;
+    AppToast.show(context, msg, bottom: bottom);
+  }
+
+  void _trySave() async {
+    if (_saving) return;
+
+    // ✅ 카드 미선택
+    if (_selectedId == null) {
+      _toast('카드를 먼저 선택해줘!');
+      return;
+    }
+
+    // ✅ 텍스트 전부 비어있음
+    if (!_canSave) {
+      _toast('내용을 한 줄이라도 적어줘!');
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      // TODO: 실제 저장 로직 여기에 넣기
+      // 예) await ArcanaRepo.save(...)
+
+      _toast('저장 완료!');
+    } catch (e) {
+      _toast('저장 실패: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _openPicker() async {
     // ✅ sheet에는 ArcanaCardItem 타입으로 넘겨주기
     final items = _allCards
@@ -230,16 +275,37 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
     return Scaffold(
       backgroundColor: AppTheme.bgSolid,
+
+      // ✅ 오른쪽 하단 저장 FAB
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FabSlot(
+            child: HomeFloatingButton(
+              onPressed: () {
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          FabSlot(
+            child: SaveFloatingButton(
+              onPressed: _trySave,
+              enabled: (_canSave && !_saving),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+
+
       body: SafeArea(
         child: Stack(
           children: [
-            // ======================
-            // 1. 기존 페이지 컨텐츠
-            // ======================
             Column(
               children: [
                 const SizedBox(height: LayoutTokens.scrollTopPad),
-
                 TopBox(
                   left: Transform.translate(
                     offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
@@ -252,13 +318,11 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
                   title: Text('78장 아르카나 기록', style: _tsTitle),
                   right: const SizedBox.shrink(),
                 ),
-
                 const SizedBox(height: 12),
-
                 Expanded(
                   child: CenterBox(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 120), // 👈 CTA 공간 확보
+                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
                       child: Column(
                         children: [
                           _PickAndSummaryBox(
@@ -292,39 +356,11 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
                 ),
               ],
             ),
-
-            // ======================
-            // 2. 하단 플로팅 CTA 영역
-            // ======================
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _FloatingCtaBar(
-                enabled: _canSave, // ✅ 보이긴 항상 보이고, 가능할 때만 활성
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        '저장(예정): ${_selectedCard?.title ?? "-"}',
-                        style: GoogleFonts.gowunDodum(fontWeight: FontWeight.w800),
-                      ),
-                      duration: const Duration(milliseconds: 900),
-                    ),
-                  );
-                },
-              ),
-            ),
-
           ],
         ),
       ),
     );
-
-
   }
-
-
 }
 
 // =========================================================
@@ -365,62 +401,59 @@ class _SelectedSummary extends StatelessWidget {
         border: Border.all(color: _a(AppTheme.gold, 0.14), width: 1),
       ),
       child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  width: 64,
-                  height: 86,
-                  color: _a(Colors.black, 0.12),
-                  child: Image.asset(
-                    card!.assetPath,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, __, ___) => Icon(
-                      Icons.style_rounded,
-                      size: 20,
-                      color: _a(AppTheme.tSecondary, 0.85),
-                    ),
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              width: 64,
+              height: 86,
+              color: _a(Colors.black, 0.12),
+              child: Image.asset(
+                card!.assetPath,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.style_rounded,
+                  size: 20,
+                  color: _a(AppTheme.tSecondary, 0.85),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  card!.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.gowunDodum(
+                    fontSize: 14.6,
+                    fontWeight: FontWeight.w900,
+                    color: _a(AppTheme.tPrimary, 0.95),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      card!.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.gowunDodum(
-                        fontSize: 14.6,
-                        fontWeight: FontWeight.w900,
-                        color: _a(AppTheme.tPrimary, 0.95),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      card!.isMajor ? '메이저 아르카나 · ${card!.id}' : '마이너 아르카나',
-                      style: GoogleFonts.gowunDodum(
-                        fontSize: 12.3,
-                        fontWeight: FontWeight.w700,
-                        color: _a(AppTheme.tSecondary, 0.92),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 4),
+                Text(
+                  card!.isMajor ? '메이저 아르카나 · ${card!.id}' : '마이너 아르카나',
+                  style: GoogleFonts.gowunDodum(
+                    fontSize: 12.3,
+                    fontWeight: FontWeight.w700,
+                    color: _a(AppTheme.tSecondary, 0.92),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded, size: 18, color: _a(AppTheme.tSecondary, 0.55)),
-            ],
-          )
-
-      );
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(Icons.chevron_right_rounded, size: 18, color: _a(AppTheme.tSecondary, 0.55)),
+        ],
+      ),
+    );
   }
 }
-
-
 
 // =========================================================
 // Common widgets
@@ -499,14 +532,12 @@ class _ArcanaCard {
 }
 
 class _PickAndSummaryBox extends StatelessWidget {
-
   static const List<String> _majorKo = [
     '바보', '마법사', '고위 여사제', '여황제', '황제', '교황',
     '연인', '전차', '힘', '은둔자', '운명의 수레바퀴', '정의',
     '매달린 사람', '죽음', '절제', '악마', '탑', '별',
     '달', '태양', '심판', '세계',
   ];
-
 
   final _ArcanaCard? selected;
   final VoidCallback onTap;
@@ -522,7 +553,6 @@ class _PickAndSummaryBox extends StatelessWidget {
     required this.onTagsChanged,
   });
 
-
   @override
   Widget build(BuildContext context) {
     final has = selected != null;
@@ -532,7 +562,6 @@ class _PickAndSummaryBox extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          // ✅ 보관함처럼 “박스 음영”
           boxShadow: [
             BoxShadow(
               color: _a(Colors.black, 0.22),
@@ -552,7 +581,6 @@ class _PickAndSummaryBox extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ===== 상단: 카드 헤더 (2줄 + 상태 칩) =====
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                   child: Row(
@@ -581,7 +609,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                                   ? (selected!.isMajor
                                   ? '${_majorKo[selected!.id]} - 메이저 아르카나'
                                   : '마이너 아르카나')
-                                  : '카드를 선택해줘',
+                                  : '카드 선택 버튼을 눌러서 카드를 선택해줘',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.gowunDodum(
@@ -594,22 +622,16 @@ class _PickAndSummaryBox extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 10),
-
-                      // ✅ 여기(카드 선택/변경) 절대 안 사라짐
                       InkWell(
                         onTap: onTap,
                         borderRadius: BorderRadius.circular(999),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: has
-                                ? _a(AppTheme.gold, 0.14)
-                                : _a(AppTheme.panelFill, 0.28),
+                            color: has ? _a(AppTheme.gold, 0.14) : _a(AppTheme.panelFill, 0.28),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
-                              color: has
-                                  ? _a(AppTheme.gold, 0.40)
-                                  : _a(AppTheme.gold, 0.16),
+                              color: has ? _a(AppTheme.gold, 0.40) : _a(AppTheme.gold, 0.16),
                               width: 1,
                             ),
                           ),
@@ -619,9 +641,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                               Icon(
                                 has ? Icons.autorenew_rounded : Icons.add_rounded,
                                 size: 16,
-                                color: has
-                                    ? _a(AppTheme.gold, 0.95)
-                                    : _a(AppTheme.tSecondary, 0.78),
+                                color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.78),
                               ),
                               const SizedBox(width: 6),
                               Text(
@@ -629,9 +649,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                                 style: GoogleFonts.gowunDodum(
                                   fontSize: 12.4,
                                   fontWeight: FontWeight.w900,
-                                  color: has
-                                      ? _a(AppTheme.gold, 0.95)
-                                      : _a(AppTheme.tSecondary, 0.78),
+                                  color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.78),
                                   height: 1.0,
                                 ),
                               ),
@@ -642,15 +660,11 @@ class _PickAndSummaryBox extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                // ===== 구분선 =====
                 Container(
                   height: 1,
                   margin: const EdgeInsets.symmetric(horizontal: 10),
                   color: _a(AppTheme.gold, 0.10),
                 ),
-
-                // ===== 하단: 선택 카드 요약 =====
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   child: _SelectedSummaryInner(
@@ -665,9 +679,7 @@ class _PickAndSummaryBox extends StatelessWidget {
         ),
       ),
     );
-
   }
-
 }
 
 /// ✅ 기존 _SelectedSummary를 "박스 없이 내용만"으로 만든 버전
@@ -681,7 +693,6 @@ class _SelectedSummaryInner extends StatelessWidget {
     required this.tagsC,
     required this.onTagsChanged,
   });
-
 
   @override
   Widget build(BuildContext context) {
@@ -699,7 +710,6 @@ class _SelectedSummaryInner extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ✅ 탭하면 확대 (길게누름 X)
         Material(
           color: Colors.transparent,
           child: InkWell(
@@ -715,7 +725,7 @@ class _SelectedSummaryInner extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
               child: Container(
                 width: 98,
-                height: 172, // ✅ 조금 키움
+                height: 172,
                 color: _a(Colors.black, 0.12),
                 child: Image.asset(
                   card!.assetPath,
@@ -726,22 +736,13 @@ class _SelectedSummaryInner extends StatelessWidget {
             ),
           ),
         ),
-
         const SizedBox(width: 12),
-
         Expanded(
           child: SizedBox(
-            height: 170, // ✅ 오른쪽도 같이 키워서 키워드칸 높이 확보
+            height: 170,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ✅ “카드 제목 + 메이저/마이너”는 위 헤더로 올렸으니
-                // 여기서는 굳이 또 안 보여줘도 됨.
-                // 그래도 혹시 중복 표기가 필요하면 아래 2줄을 주석 해제하면 됨.
-                //
-                // Text(titleLine, ...),
-                // const SizedBox(height: 8),
-
                 Expanded(
                   child: TextField(
                     controller: tagsC,
@@ -789,47 +790,6 @@ class _SelectedSummaryInner extends StatelessWidget {
         ),
       ],
     );
-
-
-  }
-}
-
-class _FloatingCtaBar extends StatelessWidget {
-  final bool enabled;
-  final VoidCallback onPressed;
-
-  const _FloatingCtaBar({
-    required this.enabled,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _a(AppTheme.bgSolid, 0.0),
-            _a(AppTheme.bgSolid, 0.85),
-            AppTheme.bgSolid,
-          ],
-        ),
-      ),
-      child: Padding(
-        // ✅ CenterBox랑 폭 느낌 맞추기: 좌우 page padding만 맞춰도 충분히 “같은 라인”으로 보여
-        padding: const EdgeInsets.symmetric(horizontal: LayoutTokens.pageHPad),
-        child: AppCtaButton(
-          label: '기록하기',
-          icon: Icons.save_rounded,
-          onPressed: enabled ? onPressed : null,
-          emphasis: true,
-          height: 46,
-        ),
-      ),
-    );
   }
 }
 
@@ -855,8 +815,6 @@ class _FieldBox extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-
-        // ✅ 보관함 느낌의 음영(살짝 떠보이게)
         boxShadow: [
           BoxShadow(
             color: _a(Colors.black, 0.22),

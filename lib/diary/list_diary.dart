@@ -4,11 +4,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
+import '../ui/app_buttons.dart';
 
 import 'calander_diary.dart'; // 캘린더로 전환 (페이드)
 import '../backend/diary_repo.dart';
 import '../cardpicker.dart' as cp;
-
+import 'write_diary.dart';
+import '../main_home_page.dart';
 import '../ui/tarot_card_preview.dart';
 
 class ListDiaryPage extends StatefulWidget {
@@ -84,7 +86,8 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   }
 
   void _applySort(List<_DiaryRowModel> list) {
-    list.sort((a, b) => _sortDesc
+    list.sort((a, b) =>
+    _sortDesc
         ? b.date.compareTo(a.date) // 최신순
         : a.date.compareTo(b.date) // 과거순
     );
@@ -132,6 +135,26 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
       ),
     );
   }
+
+  Future<void> _openWriteFor(DateTime date) async {
+    if (!mounted) return;
+
+    // ✅ 리스트에서 보고 있는 날짜로 바로 연결
+    final changed = await Navigator.of(context).push(
+      _fadeRoute(
+        WriteDiaryPage(
+          selectedDate: DateTime(date.year, date.month, date.day),
+          initialDate: DateTime(date.year, date.month, date.day),
+        ),
+      ),
+    );
+
+    // ✅ 저장/수정하고 돌아오면 리스트 갱신
+    if (changed == true) {
+      await _loadMonth();
+    }
+  }
+
 
   // ================== ✅ 로컬 DB: 월 데이터 로드 ==================
   Future<void> _loadMonth() async {
@@ -195,6 +218,18 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
     return Scaffold(
       backgroundColor: AppTheme.bgSolid,
+
+      // ✅ 오른쪽 하단 홈(메인) 버튼
+      floatingActionButton: HomeFloatingButton(
+        onPressed: () {
+          Navigator.of(context).pushAndRemoveUntil(
+            _fadeRoute(const MainHomePage()),
+                (r) => false,
+          );
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+
       body: SafeArea(
         child: Column(
           children: [
@@ -205,7 +240,10 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                   LayoutTokens.scrollTopPad,
                   0,
                   LayoutTokens.scrollBottomSpacer +
-                      MediaQuery.of(context).viewInsets.bottom,
+                      MediaQuery
+                          .of(context)
+                          .viewInsets
+                          .bottom,
                 ),
                 child: Column(
                   children: [
@@ -249,17 +287,20 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                           _MiniIconButton(
                                             icon: Icons.chevron_left_rounded,
                                             onTap: _prevMonth,
-                                            color: AppTheme.calInk.withOpacity(0.90),
+                                            color: AppTheme.calInk.withOpacity(
+                                                0.90),
                                             splash: AppTheme.inkSplash,
                                             highlight: AppTheme.inkHighlight,
                                           ),
                                           const SizedBox(width: 6),
-                                          Text(_monthLabel(_focusedMonth), style: AppTheme.month),
+                                          Text(_monthLabel(_focusedMonth),
+                                              style: AppTheme.month),
                                           const SizedBox(width: 6),
                                           _MiniIconButton(
                                             icon: Icons.chevron_right_rounded,
                                             onTap: _nextMonth,
-                                            color: AppTheme.calInk.withOpacity(0.90),
+                                            color: AppTheme.calInk.withOpacity(
+                                                0.90),
                                             splash: AppTheme.inkSplash,
                                             highlight: AppTheme.inkHighlight,
                                           ),
@@ -267,7 +308,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                       ),
                                     ),
                                   ),
-
 
                                   // 오른쪽: 검색/정렬 (작게)
                                   Row(
@@ -280,7 +320,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                       ),
                                       const SizedBox(width: 8),
 
-                                      // ✅ 정렬 토글 + 방향 아이콘 (진짜 화살표 느낌)
                                       _TinyGhostChip(
                                         icon: _sortDesc
                                             ? Icons.south_rounded
@@ -302,13 +341,14 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                               bg: Colors.white.withOpacity(0.035),
                               border: AppTheme.panelBorder,
                               child: Padding(
-                                padding:
-                                const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                                padding: const EdgeInsets.fromLTRB(
+                                    12, 10, 12, 10),
                                 child: Row(
                                   children: [
                                     Icon(Icons.search_rounded,
                                         size: 18,
-                                        color: AppTheme.tMuted.withOpacity(0.85)),
+                                        color: AppTheme.tMuted.withOpacity(
+                                            0.85)),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: TextField(
@@ -316,8 +356,8 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                         onChanged: (v) =>
                                             setState(() => _query = v),
                                         style: GoogleFonts.gowunDodum(
-                                          color:
-                                          AppTheme.tPrimary.withOpacity(0.92),
+                                          color: AppTheme.tPrimary.withOpacity(
+                                              0.92),
                                           fontSize: 12.8,
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -326,20 +366,22 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                           border: InputBorder.none,
                                           hintText: '이 달의 기록에서 검색',
                                           hintStyle: GoogleFonts.gowunDodum(
-                                            color: AppTheme.tMuted
-                                                .withOpacity(0.70),
+                                            color: AppTheme.tMuted.withOpacity(
+                                                0.70),
                                             fontSize: 12.4,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                       ),
                                     ),
-                                    if (_query.trim().isNotEmpty)
+                                    if (_query
+                                        .trim()
+                                        .isNotEmpty)
                                       _MiniIconButton(
                                         icon: Icons.close_rounded,
                                         onTap: _clearSearch,
-                                        color:
-                                        AppTheme.tPrimary.withOpacity(0.80),
+                                        color: AppTheme.tPrimary.withOpacity(
+                                            0.80),
                                         splash: AppTheme.inkSplash,
                                         highlight: AppTheme.inkHighlight,
                                       ),
@@ -366,20 +408,25 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                 ),
                               ),
                             )
-                          else if (rows.isEmpty)
-                          // ✅ 검색 중인데 결과 없으면 메시지 다르게
-                            _searchOpen && _query.trim().isNotEmpty
-                                ? const _EmptySearchCard()
-                                : const _EmptyListCard()
                           else
-                            Column(
-                              children: [
-                                for (int i = 0; i < rows.length; i++) ...[
-                                  _DiaryListRow(model: rows[i]),
-                                  const SizedBox(height: 10),
-                                ]
-                              ],
-                            ),
+                            if (rows.isEmpty)
+                              _searchOpen && _query
+                                  .trim()
+                                  .isNotEmpty
+                                  ? const _EmptySearchCard()
+                                  : const _EmptyListCard()
+                            else
+                              Column(
+                                children: [
+                                  for (int i = 0; i < rows.length; i++) ...[
+                                    _DiaryListRow(
+                                      model: rows[i],
+                                      onTap: () => _openWriteFor(rows[i].date),
+                                    ),
+                                    const SizedBox(height: 10),
+                                  ]
+                                ],
+                              ),
                         ],
                       ),
                     ),
@@ -418,8 +465,13 @@ class _DiaryRowModel {
 
 class _DiaryListRow extends StatelessWidget {
   final _DiaryRowModel model;
+  final VoidCallback onTap;
 
-  const _DiaryListRow({required this.model});
+  const _DiaryListRow({
+    required this.model,
+    required this.onTap,
+  });
+
 
   String _weekdayKo(int weekday) {
     switch (weekday) {
@@ -498,7 +550,7 @@ class _DiaryListRow extends StatelessWidget {
       return _AfterStateLine(
         badge: "실제",
         badgeTone: AppTheme.tMuted.withOpacity(0.80),
-        text: "- 기록 없음",
+        text: "-",
         textTone: AppTheme.tMuted.withOpacity(0.82),
       );
     }
@@ -506,39 +558,50 @@ class _DiaryListRow extends StatelessWidget {
     return _GlassCard(
       bg: Colors.white.withOpacity(0.04),
       border: AppTheme.panelBorder,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          // ✅ 카드 라운드랑 동일
+          borderRadius: BorderRadius.circular(18),
+          splashColor: AppTheme.gold.withOpacity(0.10),
+          highlightColor: AppTheme.gold.withOpacity(0.06),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _DatePill(text: _formatKoreanDateFull(model.date)),
-                const Spacer(),
-                Icon(Icons.chevron_right_rounded,
-                    color: AppTheme.tMuted.withOpacity(0.55)),
+                Row(
+                  children: [
+                    _DatePill(text: _formatKoreanDateFull(model.date)),
+                    const Spacer(),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.tMuted.withOpacity(0.55)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                Center(
+                  child: _CardThumbRow(
+                    cardIds: model.cardIds,
+                    tagPrefix: 'list_${model.date.toIso8601String()}',
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+                Container(height: 1, color: gold.withOpacity(0.12)),
+                const SizedBox(height: 10),
+
+                beforeBlock(),
+                const SizedBox(height: 10),
+                afterBlock(),
               ],
             ),
-            const SizedBox(height: 10),
-
-            Center(
-              child: _CardThumbRow(
-                cardIds: model.cardIds,
-                tagPrefix: 'list_${model.date.toIso8601String()}',
-              ),
-            ),
-
-            const SizedBox(height: 10),
-            Container(height: 1, color: gold.withOpacity(0.12)),
-            const SizedBox(height: 10),
-
-            beforeBlock(),
-            const SizedBox(height: 10),
-            afterBlock(),
-          ],
+          ),
         ),
       ),
     );
+
   }
 }
 
@@ -935,6 +998,7 @@ class _TinyGhostChip extends StatelessWidget {
         child: content,
       ),
     );
+
   }
 }
 

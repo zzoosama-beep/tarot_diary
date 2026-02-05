@@ -8,6 +8,9 @@ import '../ui/layout_tokens.dart';
 // ✅ (이미 프로젝트에 있다면) 78장 파일명 재사용
 import '../cardpicker.dart' as cp;
 
+// ✅ 공용 정렬
+import '../list_sorting.dart';
+
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
@@ -23,7 +26,7 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
   final TextEditingController _searchC = TextEditingController();
 
   String _query = '';
-  ArcanaSort _sort = ArcanaSort.numberAsc;
+  ListSort _sort = ListSort.numberAsc;
   ArcanaFilter _filter = ArcanaFilter.all;
 
   @override
@@ -33,27 +36,45 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
   }
 
   // ================== DATA (DB 연결 X, 로컬 더미) ==================
-  // 카드 파일명은 cardpicker.dart의 kTarotFileNames를 그대로 사용.
-  // (없으면 cardpicker.dart에 이미 쓰고 있던 리스트가 있을 거라 그걸 가져오면 됨)
   List<_ArcanaItem> _buildItems() {
-    // ✅ 0~77
     final names = cp.kTarotFileNames;
     final items = <_ArcanaItem>[];
 
     for (int i = 0; i < names.length; i++) {
-      final path = 'asset/cards/${names[i]}';
+      final filename = names[i];
+      final path = 'asset/cards/$filename';
+
+      // ✅ "00-TheFool.png" 앞의 2자리 숫자를 id로 사용 (순서 바뀌어도 안전)
+      final parsedId = int.tryParse(filename.substring(0, 2));
+      final id = parsedId ?? i;
+
       items.add(_ArcanaItem(
-        id: i,
-        title: _prettyName(names[i]),
+        id: id,
+        title: _prettyName(filename),
         assetPath: path,
       ));
     }
 
-    // ✅ Filter (UX만: “전체/메이저/마이너” 느낌만)
+    // ✅ Filter (칩 기준)
     final filtered = items.where((e) {
-      if (_filter == ArcanaFilter.all) return true;
-      if (_filter == ArcanaFilter.major) return e.id <= 21; // 0~21 메이저(관례)
-      return e.id >= 22; // 22~77 마이너(관례)
+      switch (_filter) {
+        case ArcanaFilter.all:
+          return true;
+        case ArcanaFilter.major:
+          return e.id <= 21;
+        case ArcanaFilter.minor:
+          return e.id >= 22;
+
+      // 마이너 수트(관례): 22~35 Wands, 36~49 Cups, 50~63 Swords, 64~77 Pentacles
+        case ArcanaFilter.wands:
+          return e.id >= 22 && e.id <= 35;
+        case ArcanaFilter.cups:
+          return e.id >= 36 && e.id <= 49;
+        case ArcanaFilter.swords:
+          return e.id >= 50 && e.id <= 63;
+        case ArcanaFilter.pentacles:
+          return e.id >= 64 && e.id <= 77;
+      }
     }).toList();
 
     // ✅ Search
@@ -61,34 +82,28 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
     final searched = q.isEmpty
         ? filtered
         : filtered.where((e) {
-      return e.title.toLowerCase().contains(q) ||
-          e.id.toString().contains(q);
+      return e.title.toLowerCase().contains(q) || e.id.toString().contains(q);
     }).toList();
 
-    // ✅ Sort
-    searched.sort((a, b) {
-      switch (_sort) {
-        case ArcanaSort.numberAsc:
-          return a.id.compareTo(b.id);
-        case ArcanaSort.numberDesc:
-          return b.id.compareTo(a.id);
-        case ArcanaSort.nameAsc:
-          return a.title.compareTo(b.title);
-        case ArcanaSort.nameDesc:
-          return b.title.compareTo(a.title);
-      }
-    });
+    // ✅ Sort (공용)
+    searched.sort(
+          (a, b) => compareListSort(
+        _sort,
+        idA: a.id,
+        idB: b.id,
+        titleA: a.title,
+        titleB: b.title,
+      ),
+    );
 
     return searched;
   }
 
   static String _prettyName(String filename) {
-    // "00-TheFool.png" -> "TheFool"
     var s = filename;
     s = s.replaceAll('.png', '');
     final dash = s.indexOf('-');
     if (dash >= 0 && dash + 1 < s.length) s = s.substring(dash + 1);
-    // 가독성: CamelCase 사이에 공백 넣기(대충)
     s = s.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
     return s;
   }
@@ -98,163 +113,208 @@ class _ListArcanaPageState extends State<ListArcanaPage> {
   Widget build(BuildContext context) {
     final items = _buildItems();
 
-    final tsTitle = GoogleFonts.gowunDodum(
-      fontSize: 16.5,
-      fontWeight: FontWeight.w900,
-      color: AppTheme.headerInk,
-      letterSpacing: -0.2,
-    );
-
     return Scaffold(
       backgroundColor: AppTheme.bgSolid,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: Column(
           children: [
-            // =========================================
-            // ✅ TOP: 뒤로가기 + 타이틀 (list_diary 느낌)
-            // =========================================
-            TopBox(
-              left: Transform.translate(
-                offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
-                child: _TightIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  color: AppTheme.headerInk,
-                  onTap: () => Navigator.of(context).pop(),
+            // ✅ TOP 고정
+            Padding(
+              padding: EdgeInsets.only(top: LayoutTokens.scrollTopPad),
+              child: TopBox(
+                left: Transform.translate(
+                  offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
+                  child: _TightIconButton(
+                    icon: Icons.arrow_back_rounded,
+                    color: AppTheme.headerInk,
+                    onTap: () => Navigator.of(context).pop(),
+                  ),
                 ),
+                title: Text('타로카드 도감', style: AppTheme.title),
+                right: const SizedBox.shrink(), // ✅ 비움
               ),
-              title: Text('타로카드 도감', style: tsTitle),
-              right: const SizedBox(width: 40),
             ),
 
-            // =========================================
-            // ✅ CENTER: 상단 컨트롤 + 리스트 (UX 차용)
-            // =========================================
-            Expanded(
-              child: CenterBox(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Column(
-                    children: [
-                      // ✅ list_diary에서 "월 이동(왼쪽) + 검색/정렬(오른쪽)" 같은 줄 느낌
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          children: [
-                            // 왼쪽: 필터(전체/메이저/마이너) — 월 이동 자리 대체
-                            _FilterPill(
-                              value: _filter,
-                              onChanged: (v) => setState(() => _filter = v),
-                            ),
-                            const Spacer(),
-                            // 오른쪽: 검색(작게)
-                            _SquareIcon(
-                              icon: Icons.search_rounded,
-                              onTap: () async {
-                                // UX: 검색창 포커스
-                                FocusScope.of(context).requestFocus();
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            // 오른쪽: 정렬(작게)
-                            _SortPill(
-                              value: _sort,
-                              onChanged: (v) => setState(() => _sort = v),
-                            ),
-                          ],
-                        ),
-                      ),
+            const SizedBox(height: 14),
 
-                      const SizedBox(height: 10),
+            // ✅ 검색 + 칩 고정 (CenterBox 안에 그대로)
+            CenterBox(
+              child: Column(
+                children: [
+                  // ✅ 검색 + 정렬 한 줄
+                  // ✅ 검색 + 칩을 하나의 박스로 묶기
+                  _GlassLine(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: Column(
+                        children: [
+                          // 1) 검색 + 정렬 한 줄 (박스 안)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.search_rounded,
+                                      size: 20, // ✅ 살짝 키움 (18 → 20)
+                                      color: _a(AppTheme.gold, 0.90), // ✅ 칩/정렬과 동일한 골드 톤
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        decoration: BoxDecoration(
+                                          color: _a(Colors.black, 0.06),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: _a(AppTheme.gold, 0.16),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: TextField(
+                                          controller: _searchC,
+                                          onChanged: (v) => setState(() => _query = v),
+                                          style: GoogleFonts.gowunDodum(
+                                            fontSize: 13.2,
+                                            fontWeight: FontWeight.w800,
+                                            color: _a(AppTheme.tPrimary, 0.95),
+                                            height: 1.2,
+                                          ),
+                                          decoration: InputDecoration(
+                                            hintText: '카드이름/번호',
+                                            hintStyle: GoogleFonts.gowunDodum(
+                                              fontSize: 12.6,
+                                              fontWeight: FontWeight.w700,
+                                              color: _a(AppTheme.tSecondary, 0.85),
+                                            ),
+                                            border: InputBorder.none,
+                                            isDense: true,
+                                            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
 
-                      // ✅ 검색 입력줄(상단 고정)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: _GlassLine(
-                          child: TextField(
-                            controller: _searchC,
-                            onChanged: (v) => setState(() => _query = v),
-                            style: GoogleFonts.gowunDodum(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.tPrimary,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: '카드 이름/번호로 검색',
-                              hintStyle: GoogleFonts.gowunDodum(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: _a(AppTheme.tSecondary, 0.85),
-                              ),
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding:
-                              const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                              suffixIcon: _query.isEmpty
-                                  ? null
-                                  : IconButton(
-                                icon: Icon(
-                                  Icons.close_rounded,
-                                  size: 18,
-                                  color: _a(AppTheme.tSecondary, 0.9),
+                                  ],
                                 ),
-                                onPressed: () {
-                                  _searchC.clear();
-                                  setState(() => _query = '');
-                                },
+                              ),
+                              const SizedBox(width: 10),
+                              _SortPill(
+                                value: _sort,
+                                onChanged: (v) => setState(() => _sort = v),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            indent: 4,
+                            endIndent: 4,
+                            color: _a(AppTheme.gold, 0.18),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // 2) 칩 라인 (박스 안)
+                          SizedBox(
+                            height: 36, // ✅ 칩 줄 높이 고정(깔끔)
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  _FilterChipPill(
+                                    label: '전체',
+                                    selected: _filter == ArcanaFilter.all,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.all),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '메이저',
+                                    selected: _filter == ArcanaFilter.major,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.major),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '마이너',
+                                    selected: _filter == ArcanaFilter.minor,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.minor),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '완즈',
+                                    selected: _filter == ArcanaFilter.wands,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.wands),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '컵',
+                                    selected: _filter == ArcanaFilter.cups,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.cups),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '소드',
+                                    selected: _filter == ArcanaFilter.swords,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.swords),
+                                  ),
+                                  _FilterChipPill(
+                                    label: '펜타클',
+                                    selected: _filter == ArcanaFilter.pentacles,
+                                    onTap: () => setState(() => _filter = ArcanaFilter.pentacles),
+                                  ),
+                                ].expand((w) => [w, const SizedBox(width: 6)]).toList()
+                                  ..removeLast(),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-
-                      const SizedBox(height: 10),
-
-                      // ✅ 리스트
-                      Expanded(
-                        child: items.isEmpty
-                            ? _EmptyState(
-                          text: '검색 결과가 없어요.',
-                          sub: '다른 키워드로 찾아보자.',
-                        )
-                            : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-                          itemCount: items.length,
-                          separatorBuilder: (_, __) =>
-                          const SizedBox(height: 10),
-                          itemBuilder: (context, i) {
-                            final it = items[i];
-                            return _ArcanaListTile(
-                              item: it,
-                              onTap: () {
-                                // ✅ DB 연결 전: 행동만(추후 상세/기록 페이지로 연결 예정)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '(${it.id}) ${it.title} - 추후 상세/기록 연결 예정',
-                                      style: GoogleFonts.gowunDodum(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    duration:
-                                    const Duration(milliseconds: 900),
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+
+
+
+                  const SizedBox(height: 10),
+
+
+                ],
               ),
             ),
 
-            // ✅ list_diary처럼 “하단 바텀 고정 버튼”은 지금은 없음(요청대로)
+            const SizedBox(height: 10),
+
+            // ✅ 리스트만 스크롤
+            Expanded(
+              child: (items.isEmpty)
+                  ? const Center(
+                child: _EmptyState(
+                  text: '검색 결과가 없어요.',
+                  sub: '다른 키워드로 찾아보자.',
+                ),
+              )
+                  : ListView.separated(
+                padding: EdgeInsets.fromLTRB(
+                  24.0, // ← CenterBox 좌우 여백과 동일한 값
+                  0,
+                  24.0,
+                  LayoutTokens.scrollBottomBase +
+                      MediaQuery.of(context).viewInsets.bottom,
+                ),
+
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final it = items[i];
+                  return _ArcanaListTile(
+                    item: it,
+                    onTap: () {},
+                  );
+                },
+              ),
+            ),
           ],
         ),
       ),
     );
+
   }
 }
 
@@ -273,11 +333,11 @@ class _ArcanaItem {
   });
 }
 
-enum ArcanaSort { numberAsc, numberDesc, nameAsc, nameDesc }
-enum ArcanaFilter { all, major, minor }
+// ✅ 필터 확장 (칩용)
+enum ArcanaFilter { all, major, minor, wands, cups, swords, pentacles }
 
 // =========================================================
-// ✅ UI bits (list_diary 느낌: 글라스 카드/작은 버튼들)
+// ✅ UI bits
 // =========================================================
 class _GlassLine extends StatelessWidget {
   final Widget child;
@@ -294,6 +354,58 @@ class _GlassLine extends StatelessWidget {
           border: Border.all(color: _a(AppTheme.gold, 0.18), width: 1),
         ),
         child: child,
+      ),
+    );
+  }
+}
+
+class _FilterChipPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChipPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected
+        ? _a(AppTheme.gold, 0.12)         // ✅ 선택: 살짝 골드 배경
+        : _a(AppTheme.panelFill, 0.18);   // ✅ 비선택: 패널 톤
+
+    final bd = selected
+        ? _a(AppTheme.gold, 0.40)         // ✅ 선택: 골드 보더
+        : _a(AppTheme.gold, 0.14);        // ✅ 비선택: 아주 약한 골드 보더
+
+    final fg = selected
+        ? _a(AppTheme.gold, 0.92)         // ✅ 선택: 골드 글씨
+        : _a(AppTheme.tSecondary, 0.88);  // ✅ 비선택: 서브톤 글씨 (중요!)
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: bd, width: 1),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.gowunDodum(
+              fontSize: 12.8,
+              fontWeight: FontWeight.w900,
+              color: fg,
+              height: 1.0,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -334,7 +446,6 @@ class _ArcanaListTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Row(
               children: [
-                // 썸네일 (작게, list_diary의 카드 썸네일 영역 느낌)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
@@ -352,8 +463,6 @@ class _ArcanaListTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-
-                // 텍스트
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -383,10 +492,8 @@ class _ArcanaListTile extends StatelessWidget {
                     ],
                   ),
                 ),
-
                 const SizedBox(width: 8),
-                Icon(Icons.chevron_right_rounded,
-                    size: 20, color: _a(AppTheme.tSecondary, 0.65)),
+                Icon(Icons.chevron_right_rounded, size: 20, color: _a(AppTheme.tSecondary, 0.65)),
               ],
             ),
           ),
@@ -451,41 +558,17 @@ class _TightIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 22, color: color),
-        ),
-      ),
-    );
-  }
-}
-
-class _SquareIcon extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  const _SquareIcon({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Ink(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: _a(AppTheme.panelFill, 0.45),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
-          ),
-          child: Icon(icon, size: 18, color: _a(AppTheme.tPrimary, 0.92)),
+    return InkResponse(
+      onTap: onTap,
+      radius: 22,
+      splashColor: AppTheme.inkSplash,
+      highlightColor: AppTheme.inkHighlight,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Icon(icon, size: 24, color: color),
         ),
       ),
     );
@@ -493,101 +576,90 @@ class _SquareIcon extends StatelessWidget {
 }
 
 class _SortPill extends StatelessWidget {
-  final ArcanaSort value;
-  final ValueChanged<ArcanaSort> onChanged;
+  final ListSort value;
+  final ValueChanged<ListSort> onChanged;
   const _SortPill({required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 36,
+      height: 30, // ✅ 전체 높이 다운
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: _a(AppTheme.panelFill, 0.45),
+        color: _a(AppTheme.panelFill, 0.28),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<ArcanaSort>(
-          value: value,
-          onChanged: (v) {
-            if (v != null) onChanged(v);
-          },
-          dropdownColor: _a(AppTheme.panelFill, 0.95),
-          iconEnabledColor: _a(AppTheme.tSecondary, 0.9),
-          style: GoogleFonts.gowunDodum(
-            fontSize: 12.6,
-            fontWeight: FontWeight.w900,
-            color: _a(AppTheme.tPrimary, 0.92),
-          ),
-          items: const [
-            DropdownMenuItem(
-              value: ArcanaSort.numberAsc,
-              child: Text('번호↑'),
-            ),
-            DropdownMenuItem(
-              value: ArcanaSort.numberDesc,
-              child: Text('번호↓'),
-            ),
-            DropdownMenuItem(
-              value: ArcanaSort.nameAsc,
-              child: Text('이름↑'),
-            ),
-            DropdownMenuItem(
-              value: ArcanaSort.nameDesc,
-              child: Text('이름↓'),
-            ),
-          ],
+        border: Border.all(
+          color: _a(AppTheme.gold, 0.45),
+          width: 1,
         ),
       ),
+      child: DropdownButtonHideUnderline(
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+          ),
+          child: DropdownButton<ListSort>(
+            value: value,
+            onChanged: (v) {
+              if (v != null) onChanged(v);
+            },
+
+            isDense: true,
+            iconSize: 18, // ✅ 아이콘만 살짝 줄이기
+            borderRadius: BorderRadius.circular(12),
+            dropdownColor: _a(AppTheme.panelFill, 0.95),
+            iconEnabledColor: _a(AppTheme.gold, 0.85),
+
+            selectedItemBuilder: (context) {
+              return ListSort.values.map((s) {
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _shortSortLabel(s),
+                    style: GoogleFonts.gowunDodum(
+                      fontSize: 12.4,
+                      fontWeight: FontWeight.w900,
+                      color: _a(AppTheme.gold, 0.92),
+                      height: 1.0,
+                    ),
+                  ),
+                );
+              }).toList();
+            },
+
+            style: GoogleFonts.gowunDodum(
+              fontSize: 12.4,
+              fontWeight: FontWeight.w900,
+              color: _a(AppTheme.gold, 0.92),
+              height: 1.0,
+            ),
+
+            items: ListSort.values.map(
+                  (s) => DropdownMenuItem<ListSort>(
+                value: s,
+                child: Text(listSortLabel(s)),
+              ),
+            ).toList(),
+          ),
+        ),
+      ),
+
     );
   }
 }
 
-class _FilterPill extends StatelessWidget {
-  final ArcanaFilter value;
-  final ValueChanged<ArcanaFilter> onChanged;
-  const _FilterPill({required this.value, required this.onChanged});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: _a(AppTheme.panelFill, 0.45),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<ArcanaFilter>(
-          value: value,
-          onChanged: (v) {
-            if (v != null) onChanged(v);
-          },
-          dropdownColor: _a(AppTheme.panelFill, 0.95),
-          iconEnabledColor: _a(AppTheme.tSecondary, 0.9),
-          style: GoogleFonts.gowunDodum(
-            fontSize: 12.6,
-            fontWeight: FontWeight.w900,
-            color: _a(AppTheme.tPrimary, 0.92),
-          ),
-          items: const [
-            DropdownMenuItem(
-              value: ArcanaFilter.all,
-              child: Text('전체'),
-            ),
-            DropdownMenuItem(
-              value: ArcanaFilter.major,
-              child: Text('메이저'),
-            ),
-            DropdownMenuItem(
-              value: ArcanaFilter.minor,
-              child: Text('마이너'),
-            ),
-          ],
-        ),
-      ),
-    );
+
+String _shortSortLabel(ListSort s) {
+  switch (s) {
+    case ListSort.numberAsc:
+      return '번호↑';
+    case ListSort.numberDesc:
+      return '번호↓';
+    case ListSort.nameAsc:
+      return '이름↑';
+    case ListSort.nameDesc:
+      return '이름↓';
   }
 }

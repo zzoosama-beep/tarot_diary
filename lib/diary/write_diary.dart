@@ -11,7 +11,8 @@ import '../cardpicker.dart' as cp;
 import '../ui/layout_tokens.dart';
 // ✅ 공용 CTA 버튼 (저장/수정/삭제)
 import '../ui/app_buttons.dart';
-
+// ✅ 공용 toast
+import '../ui/app_toast.dart';
 // ✅ 공통 테마
 import '../theme/app_theme.dart';
 
@@ -108,57 +109,10 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     color: _a(AppTheme.tSecondary, 0.85),
   );
 
-  // ================== TOAST (box-width) ==================
-  OverlayEntry? _toastEntry;
-
-  void _toast(String msg) {
+  // ================== TOAST (공용) ==================
+  void _toast(String msg, {double bottom = 110}) {
     if (!mounted) return;
-
-    FocusScope.of(context).unfocus();
-
-    _toastEntry?.remove();
-    _toastEntry = null;
-
-    final overlay = Overlay.of(context);
-    if (overlay == null) return;
-
-    // ✅ 센터 컨텐츠 폭에 맞추기: left/right = pageHPad + (센터 패널 내부 padding 14)
-    const double side = LayoutTokens.pageHPad + 14;
-
-    _toastEntry = OverlayEntry(
-      builder: (_) => Positioned(
-        left: side,
-        right: side,
-        bottom: 110,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: _a(Colors.black, 0.78),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              msg,
-              textAlign: TextAlign.center,
-              style: AppTheme.uiSmallLabel.copyWith(
-                color: _a(AppTheme.tPrimary, 0.92),
-                fontSize: 12.5,
-                height: 1.15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    overlay.insert(_toastEntry!);
-
-    Future.delayed(const Duration(seconds: 2), () {
-      _toastEntry?.remove();
-      _toastEntry = null;
-    });
+    AppToast.show(context, msg, bottom: bottom);
   }
 
   void _trySave() {
@@ -185,8 +139,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   void initState() {
     super.initState();
 
-    _selectedDate =
-        widget.selectedDate ?? widget.initialDate ?? DateTime.now().add(const Duration(days: 1));
+    _selectedDate = widget.selectedDate ??
+        widget.initialDate ??
+        DateTime.now().add(const Duration(days: 1));
 
     _beforeCtrl.addListener(() {
       _markTouched();
@@ -204,13 +159,11 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
   @override
   void dispose() {
-    _toastEntry?.remove();
     _beforeCtrl.dispose();
     _afterCtrl.dispose();
     super.dispose();
   }
 
-  // ================== LOAD ==================
   // ================== LOAD ==================
   Future<void> _loadDiary() async {
     setState(() => _loading = true);
@@ -263,8 +216,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     }
   }
 
-
-  // ================== SAVE ==================
   // ================== SAVE ==================
   Future<void> _save() async {
     if (_saving) {
@@ -316,7 +267,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     }
   }
 
-
   // ================== CARD PICK ==================
   void _autoPick() {
     _markTouched();
@@ -367,15 +317,45 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== UI ==================
   @override
   Widget build(BuildContext context) {
-    // ✅ 플로팅 버튼 높이 + 바닥 여백
-    const double floatH = 44.0;
-    const double floatBottomGap = 14.0;
+    // ✅ FAB 자리(오른쪽 하단)만큼 바닥 여백 확보용
+    const double fabH = 120.0;
 
     final viewInsetB = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
+
+      // ✅ 공용 저장 FAB
+      // ✅ 저장 + 홈 FAB (2개)
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(right: 6, bottom: 6), // ✅ 여기 숫자로 미세조정
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FabSlot(
+              child: HomeFloatingButton(
+                onPressed: () {
+                  Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            FabSlot(
+              child: SaveFloatingButton(
+                onPressed: _trySave,
+                enabled: (_canSave && !_saving),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+
+
+
+
       body: _bg(
         child: SafeArea(
           child: Stack(
@@ -389,11 +369,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                     0,
                     LayoutTokens.scrollTopPad,
                     0,
-                    LayoutTokens.scrollBottomBase +
-                        viewInsetB +
-                        floatH +
-                        floatBottomGap +
-                        10,
+                    LayoutTokens.scrollBottomBase + viewInsetB + fabH,
                   ),
                   child: Column(
                     children: [
@@ -410,7 +386,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                         right: _buildTopRightDatePill(),
                       ),
                       const SizedBox(height: 14),
-
                       CenterBox(
                         child: Column(
                           children: [
@@ -437,31 +412,12 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                   ),
                 ),
               ),
-
-              // =========================
-              // FLOATING CTA (저장하기)
-              // =========================
-              Positioned(
-                left: LayoutTokens.pageHPad,
-                right: LayoutTokens.pageHPad,
-                bottom: floatBottomGap + viewInsetB,
-                child: IgnorePointer(
-                  ignoring: _saving,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 140),
-                    curve: Curves.easeOut,
-                    opacity: viewInsetB > 0 ? 0.96 : 1.0,
-                    child: _buildSaveButton(),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
       ),
     );
   }
-
 
   // ✅ TopBox 우측 슬롯: 날짜 pill
   Widget _buildTopRightDatePill() {
@@ -624,26 +580,20 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           ? 'asset/cards/${cp.kTarotFileNames[_pickedCards[i]]}'
           : 'asset/cards/back.png';
 
-      // ✅ 앞/뒷면 글로우 전략
-      // - back: 은은한 골드 헤일로 + 살짝 라인 느낌
-      // - front: 글로우 거의 제거(카드 내용 선명)
+      // ✅ 글로우/그림자
       final List<BoxShadow> shadows = [
-        // 공통: 기본 깊이감(블랙)
         BoxShadow(
           color: _a(Colors.black, has ? 0.18 : 0.16),
           blurRadius: has ? 8 : 6,
           offset: const Offset(0, 6),
         ),
-
         if (!has) ...[
-          // ✅ back 전용: 퍼지는 골드 빛(은은하게)
           BoxShadow(
             color: _a(AppTheme.gold, 0.22),
             blurRadius: 22,
             spreadRadius: 1.2,
             offset: const Offset(0, 0),
           ),
-          // ✅ back 전용: 바깥 가장자리 라인 느낌(아주 약하게)
           BoxShadow(
             color: _a(AppTheme.gold, 0.10),
             blurRadius: 6,
@@ -667,11 +617,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(cardR),
               child: Container(
-                // ✅ back은 살짝 어둡게 받쳐주면 글로우가 더 고급스럽게 보임
                 color: _a(Colors.black, has ? 0.08 : 0.12),
                 alignment: Alignment.center,
                 child: Transform.scale(
-                  // ✅ 앞면은 살짝만(기존 느낌 유지), 뒷면은 확대 X
                   scale: has ? 1.03 : 1.00,
                   child: Image.asset(
                     path,
@@ -686,7 +634,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
         ),
       );
     }
-
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -843,7 +790,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       required TextEditingController controller,
       required String hint,
       required bool enabled,
-      required double height,
+      int minLines = 6,
       Widget? overlay,
     }) {
       final radius = BorderRadius.circular(AppTheme.innerRadius);
@@ -851,7 +798,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       return ClipRRect(
         borderRadius: radius,
         child: Container(
-          height: height,
           decoration: BoxDecoration(
             color: _a(AppTheme.panelFill, 0.58),
             border: Border.all(color: AppTheme.panelBorderSoft),
@@ -863,20 +809,22 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                 child: AbsorbPointer(
                   absorbing: !enabled,
-                  child: TextField(
-                    controller: controller,
-                    enabled: true,
-                    expands: true,
-                    maxLines: null,
-                    minLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: _tsBody,
-                    decoration: InputDecoration(
-                      hintText: hint,
-                      hintStyle: _tsHint,
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 140),
+                    child: TextField(
+                      controller: controller,
+                      enabled: true,
+                      minLines: minLines,
+                      maxLines: null,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: _tsBody,
+                      decoration: InputDecoration(
+                        hintText: hint,
+                        hintStyle: _tsHint,
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
                     ),
                   ),
                 ),
@@ -901,7 +849,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
             controller: _beforeCtrl,
             hint: '카드를 뽑고, 내일은 어떤 하루가 될지 적어봐.',
             enabled: true,
-            height: 145,
+            minLines: 7,
           ),
           const SizedBox(height: 12),
           Container(height: 1, color: _a(AppTheme.gold, 0.13)),
@@ -923,7 +871,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
               controller: _afterCtrl,
               hint: '오늘을 실제로 겪어보니 어떤 하루였어?',
               enabled: _afterUnlocked,
-              height: 140,
+              minLines: 7,
               overlay: !_afterUnlocked
                   ? Container(
                 decoration: BoxDecoration(
@@ -958,21 +906,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    final can = _canSave && !_saving;
-
-    return AppCtaButton(
-      label: _saving ? '저장 중…' : '저장하기',
-      icon: Icons.save_rounded,
-      onPressed: can ? _trySave : null,
-      emphasis: true,
-      danger: false,
-      height: 44,
-      fontSize: 14.0,
-      radius: _btnRadius.toDouble(),
     );
   }
 }

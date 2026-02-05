@@ -566,6 +566,17 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
     return Scaffold(
       backgroundColor: bgSolid,
+
+      // ✅ 오른쪽 하단 홈 버튼 (동그란 + 음영)
+      floatingActionButton: HomeFloatingButton(
+        onPressed: () {
+          Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
+          // 또는 MainHomePage로 페이드 이동을 원하면 아래로 바꿔도 됨:
+          // Navigator.of(context).pushAndRemoveUntil(_fadeRoute(const MainHomePage()), (r) => false);
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+
       body: SafeArea(
         child: Column(
           children: [
@@ -867,33 +878,49 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  SizedBox(
-                    width: 120, // 👈 여기서 직접 width 조절
-                    child: AppDiaryPillButton(
-                      label: _bottomCtaLabel(hasSelected),
-                      icon: Icons.edit_rounded,
-                      onPressed: _onWriteOrEdit,
-                      danger: false,
-                      height: 40,
-                      fontSize: 13.2,
+                  if (!hasSelected) ...[
+                    // ✅ 일기 없을 때: "일기 쓰기"만 중앙
+                    SizedBox(
+                      width: 160, // 중앙 버튼이라 살짝 넓게
+                      child: AppDiaryPillButton(
+                        label: '일기 쓰기',
+                        icon: Icons.edit_rounded,
+                        onPressed: _onWriteOrEdit,
+                        danger: false,
+                        height: 40,
+                        fontSize: 13.2,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 120, // 👈 동일
-                    child: AppDiaryPillButton(
-                      label: '일기 삭제',
-                      icon: Icons.close_rounded,
-                      onPressed: hasSelected ? _confirmDeleteDialog : null,
-                      danger: true,
-                      height: 40,
-                      fontSize: 13.2,
+                  ] else ...[
+                    // ✅ 일기 있을 때: "일기 수정" + "일기 삭제"
+                    SizedBox(
+                      width: 120,
+                      child: AppDiaryPillButton(
+                        label: '일기 수정',
+                        icon: Icons.edit_rounded,
+                        onPressed: _onWriteOrEdit,
+                        danger: false,
+                        height: 40,
+                        fontSize: 13.2,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 120,
+                      child: AppDiaryPillButton(
+                        label: '일기 삭제',
+                        icon: Icons.close_rounded,
+                        onPressed: _confirmDeleteDialog, // ✅ hasSelected일 때만 렌더되니 null 필요 없음
+                        danger: true,
+                        height: 40,
+                        fontSize: 13.2,
+                      ),
+                    ),
+                  ],
                 ],
               ),
-
             ),
+
 
           ],
         ),

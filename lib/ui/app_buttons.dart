@@ -106,12 +106,21 @@ class AppCtaButton extends StatelessWidget {
 /// - 배경은 딥퍼플 + 안쪽 골드 필
 /// - 아이콘만 포인트: 수정=블루, 삭제=X만 버건디
 /// ------------------------------------------------------------
+/// ------------------------------------------------------------
+/// 2) ✅ 캘린더 하단 "일기 수정 / 일기 삭제" 전용 Pill 버튼 (스샷 스타일)
+/// - 배경: 라벤더 톤 (고정)
+/// - 보더: 골드 톤 다운
+/// - 텍스트: 골드 톤 다운
+/// - 아이콘: 기존 포인트 컬러 그대로(수정=블루, 삭제=버건디)
+/// ------------------------------------------------------------
+// lib/ui/app_buttons.dart
+
 class AppDiaryPillButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
 
-  /// 아이콘만 포인트 컬러로 바꿀 때 사용
+  /// 아이콘만 포인트 컬러로 바꿀 때 사용 (삭제 버튼)
   final bool danger;
 
   /// 크기
@@ -122,7 +131,7 @@ class AppDiaryPillButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.icon,
-    required this.onPressed,
+    this.onPressed, // required 제거하여 null 허용 (비활성화 상태 대응)
     this.danger = false,
     this.height = 44,
     this.fontSize = 14.0,
@@ -131,18 +140,23 @@ class AppDiaryPillButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final can = onPressed != null;
-
     final gold = AppTheme.gold;
-    const baseBg = Color(0xFF2E2348);
 
+    // ✅ 배경: 깊고 차분한 라벤더 톤
+    const Color lavenderBg = Color(0xFF4A446E);
+
+    // ✅ 글자색: 배경과 어우러지는 뮤트 퍼플
+    const Color lavenderText = Color(0xFF9F86C0);
+
+    // ✅ 아이콘 포인트 컬러 (기존 유지)
     final Color editBlue = AppTheme.editBlue;
     const Color dangerInk = Color(0xFFB45A64);
     final iconColor = danger ? dangerInk : editBlue;
 
-    // ✅ 스샷 느낌: 딥퍼플 바탕 + 골드 보더 + (아주 은은한) 골드 필 단색
-    final bg = _a(baseBg, can ? 0.90 : 0.55);
-    final border = _a(gold, can ? 0.30 : 0.14);
-    final fillGold = _a(gold, can ? 0.10 : 0.05); // ✅ 단색 필 (그라데이션 X)
+    // 상태에 따른 색상 계산
+    final textC = _a(lavenderText, can ? 0.95 : 0.45);
+    final borderC = _a(gold, can ? 0.22 : 0.12);
+    final bgC = _a(lavenderBg, can ? 0.92 : 0.55);
 
     return SizedBox(
       height: height,
@@ -153,75 +167,69 @@ class AppDiaryPillButton extends StatelessWidget {
         child: InkWell(
           onTap: onPressed,
           customBorder: const StadiumBorder(),
-          splashColor: _a(gold, 0.14),
-          highlightColor: _a(gold, 0.08),
+          splashColor: _a(gold, 0.10),
+          highlightColor: _a(gold, 0.06),
           child: Ink(
             decoration: BoxDecoration(
-              color: bg,
+              color: bgC,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: border, width: 1),
+              border: Border.all(color: borderC, width: 1),
+              // ✅ 음영 효과 추가 (입체감 강화)
               boxShadow: can
                   ? [
+                // 1) 바닥 그림자(멀리, 넓게) - 너무 과하지 않게
+                BoxShadow(
+                  color: _a(Colors.black, 0.30),
+                  blurRadius: 16,
+                  spreadRadius: 0.5,
+                  offset: const Offset(0, 8),
+                ),
+
+                // 2) 바로 밑에 붙는 그림자(가까이, 선명) - "떠있음" 핵심
                 BoxShadow(
                   color: _a(Colors.black, 0.22),
-                  blurRadius: 14,
-                  offset: const Offset(0, 8),
+                  blurRadius: 6,
+                  spreadRadius: 0.0,
+                  offset: const Offset(0, 3),
+                ),
+
+                // 3) 윗면 하이라이트(빛 받는 느낌) - 입체감 체감 1등 공신
+                BoxShadow(
+                  color: _a(Colors.white, 0.10),
+                  blurRadius: 6,
+                  spreadRadius: -2.0, // 안쪽으로 살짝 말리게
+                  offset: const Offset(0, -2),
                 ),
               ]
                   : null,
+
             ),
-            child: Stack(
-              children: [
-                // ✅ 단색 골드 필 (그라데이션 제거)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: fillGold,
-                        borderRadius: BorderRadius.circular(999),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      size: danger ? 22 : 18,
+                      color: _a(iconColor, can ? 0.95 : 0.45), // 아이콘 색 유지
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: GoogleFonts.gowunDodum(
+                        fontSize: fontSize,
+                        fontWeight: FontWeight.w900,
+                        height: 1.15,
+                        letterSpacing: -0.2,
+                        color: textC, // ✅ 뮤트 퍼플 글자색 적용
                       ),
                     ),
-                  ),
+                  ],
                 ),
-
-                // ✅ 수직 정렬: Strut + height로 "말려 올라감" 방지
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Icon(
-                          icon,
-                          size: danger ? 22 : 18, // ✅ X만 커짐, 연필은 그대로
-                          color: _a(iconColor, can ? 0.95 : 0.45),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          label,
-                          textHeightBehavior: const TextHeightBehavior(
-                            applyHeightToFirstAscent: false,
-                            applyHeightToLastDescent: false,
-                          ),
-                          strutStyle: StrutStyle(
-                            fontSize: fontSize,
-                            height: 1.15,
-                            forceStrutHeight: true,
-                          ),
-                          style: GoogleFonts.gowunDodum(
-                            fontSize: fontSize,
-                            fontWeight: FontWeight.w900,
-                            height: 1.15,
-                            letterSpacing: -0.2,
-                            color: _a(gold, can ? 0.90 : 0.40),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -229,7 +237,6 @@ class AppDiaryPillButton extends StatelessWidget {
     );
   }
 }
-
 
 class AppFloatAction {
   final String label;
@@ -371,6 +378,160 @@ class _FloatBtn extends StatelessWidget {
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
         ),
+      ),
+    );
+  }
+}
+
+
+// 저장버튼 (플로팅)
+class SaveFloatingButton extends StatelessWidget {
+  final VoidCallback onPressed; // ✅ 항상 탭 가능
+  final String tooltip;
+  final bool enabled; // ✅ UI만 dim 처리
+
+  const SaveFloatingButton({
+    super.key,
+    required this.onPressed,
+    this.tooltip = '저장하기',
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.55, // ✅ 저장 불가 상태면 흐리게
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.22),
+                blurRadius: 7,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: FloatingActionButton.small(
+            onPressed: onPressed, // ✅ 항상 눌림 → _trySave에서 토스트 가능
+
+            backgroundColor: const Color(0xFF4A446E),
+            foregroundColor: const Color(0xFFD4C0F2),
+
+            elevation: 0,
+            shape: const CircleBorder(side: BorderSide.none),
+
+            child: const Icon(Icons.save_rounded, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 홈버튼 (플로팅)
+// 홈버튼 (플로팅) - ✅ 저장버튼과 동일한 "동그란" 톤 + 음영 강화
+class HomeFloatingButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  final String tooltip;
+
+  const HomeFloatingButton({
+    super.key,
+    required this.onPressed,
+    this.tooltip = '홈으로',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const bg = Color(0xFF4A446E);
+    const fg = Color(0xFFD4C0F2);
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: _a(Colors.black, 0.30),
+              blurRadius: 16,
+              offset: const Offset(0, 10),
+            ),
+            BoxShadow(
+              color: _a(Colors.black, 0.20),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+            BoxShadow(
+              color: _a(Colors.white, 0.10),
+              blurRadius: 6,
+              spreadRadius: -2.0,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: ClipOval(
+            child: InkWell(
+              onTap: onPressed,
+              splashColor: _a(fg, 0.18),
+              highlightColor: _a(fg, 0.10),
+              child: Ink(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  color: bg,
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: Icon(Icons.home_rounded, size: 20, color: fg),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+// ✅ 홈으로 이동하는 공용 액션
+AppFloatAction homeAction(BuildContext context) {
+  return AppFloatAction(
+    label: '홈',
+    icon: Icons.home_rounded,
+    onPressed: () {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
+    },
+    primary: false,
+    visible: true,
+  );
+}
+
+
+/// ✅ FAB 2개 정렬용 슬롯: 두 버튼의 "정렬 기준 박스"를 통일
+class FabSlot extends StatelessWidget {
+  final Widget child;
+  final double size;
+
+  const FabSlot({
+    super.key,
+    required this.child,
+    this.size = 52, // 필요하면 48~56 사이로 조절
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: size,
+      child: Align(
+        alignment: Alignment.center,
+        child: child,
       ),
     );
   }
