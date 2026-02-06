@@ -3,6 +3,9 @@
         android:label="tarot_diary"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-5894860240201267~6905353802"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

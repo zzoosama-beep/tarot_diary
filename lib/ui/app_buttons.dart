@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../ads/rewarded_gate.dart';
 
 /// 공용 알파 헬퍼 (withOpacity 워닝 회피)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -607,5 +608,106 @@ class AppFilterChipPill extends StatelessWidget {
   }
 }
 
+/// 달냥에게 물어보기 버튼 (공용)
+/// 달냥에게 물어보기 버튼 (공용) - ✅ 탭만 지원
+class DallyangAskPill extends StatelessWidget {
+  final bool enabled;
+  final String confirmMessage;
+  final Future<void> Function() onReward;
 
+  /// enabled=false일 때 눌렀을 때 처리(토스트 등)
+  final VoidCallback? onDisabledTap;
 
+  /// 광고가 아직 준비 안 됐을 때 처리(토스트 등)
+  final VoidCallback? onNotReady;
+
+  const DallyangAskPill({
+    super.key,
+    required this.enabled,
+    required this.confirmMessage,
+    required this.onReward,
+    this.onDisabledTap,
+    this.onNotReady,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = enabled
+        ? _a(AppTheme.tPrimary, 0.90)
+        : _a(AppTheme.tSecondary, 0.55);
+    final bg = _a(AppTheme.gold, enabled ? 0.12 : 0.06);
+    final bd = _a(AppTheme.gold, enabled ? 0.35 : 0.18);
+
+    Future<void> _runAdFlow() async {
+      if (!enabled) {
+        onDisabledTap?.call();
+        return;
+      }
+
+      // 미리 로드(있으면 좋고 없어도 OK)
+      RewardedGate.preload(context);
+
+      await RewardedGate.showAndReward(
+        context,
+        confirmTitle: '달냥이의 해석 힌트',
+        confirmMessage: confirmMessage,
+        onRewardEarned: () async {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ 보상 지급됨! 달냥이가 답하는 중…')),
+          );
+          await onReward();
+        },
+        onNotReady: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('광고 준비 중이야. 잠깐만 다시 눌러줘!')),
+          );
+        },
+        onRewardNotEarned: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('끝까지 봐야 보상이 지급돼!')),
+          );
+        },
+        onShowFailed: (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('광고 표시 실패: $e')),
+          );
+        },
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async => await _runAdFlow(),
+        borderRadius: BorderRadius.circular(999),
+        splashColor: _a(AppTheme.gold, 0.12),
+        highlightColor: _a(AppTheme.gold, 0.06),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: bd, width: 0.9),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.pets_rounded, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(
+                '달냥이에게 물어보기',
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 11.8,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                  height: 1.0,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
