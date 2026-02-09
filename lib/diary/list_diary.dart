@@ -1,7 +1,7 @@
 // list_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../ui/arcana_labels.dart';
+import '../arcana/arcana_labels.dart';
 
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';

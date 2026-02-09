@@ -1,7 +1,7 @@
 // calander_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:tarot_diary/ui/arcana_labels.dart';
+import 'package:tarot_diary/arcana/arcana_labels.dart';
 
 import '../theme/app_theme.dart';
 import 'list_diary.dart';

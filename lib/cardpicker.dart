@@ -1,6 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../ui/arcana_labels.dart';
+import 'arcana/arcana_labels.dart';
 
 // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());

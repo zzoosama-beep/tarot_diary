@@ -5,12 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 
 import '../ui/tarot_card_preview.dart';
+import 'arcana_labels.dart';
 
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
-
-enum ArcanaGroup { major, minor }
-enum MinorSuit { wands, cups, swords, pentacles, unknown }
 
 class ArcanaCardItem {
   final int id;
@@ -402,95 +400,11 @@ class _PillDropdown<T> extends StatelessWidget {
   }
 }
 
-const Map<int, String> kMajorKo = {
-  0: '바보',
-  1: '마법사',
-  2: '고위 여사제',
-  3: '여황제',
-  4: '황제',
-  5: '교황',
-  6: '연인',
-  7: '전차',
-  8: '힘',
-  9: '은둔자',
-  10: '운명의 수레바퀴',
-  11: '정의',
-  12: '매달린 사람',
-  13: '죽음',
-  14: '절제',
-  15: '악마',
-  16: '탑',
-  17: '별',
-  18: '달',
-  19: '태양',
-  20: '심판',
-  21: '세계',
-};
 
-int _minorRankOf(ArcanaCardItem c) {
-  // Rider-Waite 일반 순서 가정:
-  // Wands: 22~35, Cups: 36~49, Swords: 50~63, Pentacles: 64~77
-  switch (c.suit) {
-    case MinorSuit.wands:
-      return (c.id - 21).clamp(1, 14);
-    case MinorSuit.cups:
-      return (c.id - 35).clamp(1, 14);
-    case MinorSuit.swords:
-      return (c.id - 49).clamp(1, 14);
-    case MinorSuit.pentacles:
-      return (c.id - 63).clamp(1, 14);
-    case MinorSuit.unknown:
-    // 파일명에서 슈트 인식이 안 된 경우 fallback
-      return ((c.id - 22) % 14 + 1).clamp(1, 14);
-  }
-}
 
-String _displayNoText(ArcanaCardItem c) {
-  if (c.isMajor) return c.id.toString();
-  return _minorRankOf(c).toString();
-}
 
-String _courtNameOf(int rank) {
-  switch (rank) {
-    case 11:
-      return '페이지';
-    case 12:
-      return '나이트';
-    case 13:
-      return '퀸';
-    case 14:
-      return '킹';
-    default:
-      return rank.toString();
-  }
-}
 
-String _minorDisplayTitle(ArcanaCardItem c) {
-  final rank = _minorRankOf(c);
 
-  final suitName = switch (c.suit) {
-    MinorSuit.wands => '완즈',
-    MinorSuit.cups => '컵',
-    MinorSuit.swords => '소드',
-    MinorSuit.pentacles => '펜타클',
-    MinorSuit.unknown => '마이너',
-  };
-
-  if (rank <= 10) {
-    return '$suitName $rank';
-  }
-
-  return '$suitName ${_courtNameOf(rank)}';
-}
-
-String _displayTitle(ArcanaCardItem c) {
-  if (c.isMajor) {
-    return '${c.id}. ${c.title}';
-  }
-
-  final rank = _minorRankOf(c);
-  return '$rank. ${_minorDisplayTitle(c)}';
-}
 
 class _CardRow extends StatelessWidget {
   final ArcanaCardItem card;
@@ -564,7 +478,7 @@ class _CardRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      kMajorKo[card.id] ?? '',
+                      ArcanaLabels.majorKoName(card.id) ?? '',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.gowunDodum(
@@ -578,7 +492,7 @@ class _CardRow extends StatelessWidget {
                   ],
                 )
                     : Text(
-                  _displayTitle(card), // ✅ 마이너는 네가 만든 표시 규칙(1~14/페이지/나이트/퀸/킹)
+                  _minorTitleFromLabels(card),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.gowunDodum(
@@ -604,3 +518,12 @@ class _CardRow extends StatelessWidget {
     );
   }
 }
+
+String _minorTitleFromLabels(ArcanaCardItem c) {
+  final filename = ArcanaLabels.kTarotFileNames[c.id];
+  final en = ArcanaLabels.prettyEnTitleFromFilename(filename);
+  final ko = ArcanaLabels.minorKoFromFilename(filename) ?? en;
+  // 네가 원하면 "rank." 같은 형식도 붙일 수 있는데, 일단 깔끔한 1줄용
+  return ko; // 예: "에이스 완즈", "완즈 2", "컵 퀸" ...
+}
+

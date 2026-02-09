@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../ads/rewarded_gate.dart';
+import '../error/app_error_dialog.dart';
+import '../error/app_error_handler.dart';
 
 /// 공용 알파 헬퍼 (withOpacity 워닝 회피)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -609,25 +611,41 @@ class AppFilterChipPill extends StatelessWidget {
 }
 
 /// 달냥에게 물어보기 버튼 (공용)
-/// 달냥에게 물어보기 버튼 (공용) - ✅ 탭만 지원
 class DallyangAskPill extends StatelessWidget {
   final bool enabled;
   final String confirmMessage;
+
+  /// ✅ 광고 보상 획득 후 실행할 작업(서버 credit + ask 등)
+  /// - 여기서 예외 던져도 됨 (UI에서 catch)
   final Future<void> Function() onReward;
 
-  /// enabled=false일 때 눌렀을 때 처리(토스트 등)
+  /// ✅ 광고 시작 전에 사전 체크(남은 횟수 등)
+  /// - 성공: return
+  /// - 실패: DalnyangKnownException / DalnyangUnknownException throw
+  final Future<void> Function()? precheckBeforeAd;
+
+  /// enabled=false일 때 눌렀을 때 처리(토스트 등) -> UI에서만
   final VoidCallback? onDisabledTap;
 
-  /// 광고가 아직 준비 안 됐을 때 처리(토스트 등)
+  /// 광고가 아직 준비 안 됐을 때 처리(토스트 등) -> UI에서만
   final VoidCallback? onNotReady;
+
+  /// 광고를 끝까지 안 봐서 보상 못 받은 경우 -> UI에서만
+  final VoidCallback? onRewardNotEarned;
+
+  /// 광고 표시 자체 실패 -> UI에서만
+  final void Function(Object error)? onShowFailed;
 
   const DallyangAskPill({
     super.key,
     required this.enabled,
     required this.confirmMessage,
     required this.onReward,
+    this.precheckBeforeAd,
     this.onDisabledTap,
     this.onNotReady,
+    this.onRewardNotEarned,
+    this.onShowFailed,
   });
 
   @override
@@ -644,36 +662,33 @@ class DallyangAskPill extends StatelessWidget {
         return;
       }
 
-      // 미리 로드(있으면 좋고 없어도 OK)
-      RewardedGate.preload(context);
+      try {
+        // ✅ 0) 광고 보기 전 사전 체크 (남은 횟수 등)
+        if (precheckBeforeAd != null) {
+          await precheckBeforeAd!.call(); // 여기서 throw → 아래 catch로 잡힘
+        }
 
-      await RewardedGate.showAndReward(
-        context,
-        confirmTitle: '달냥이의 해석 힌트',
-        confirmMessage: confirmMessage,
-        onRewardEarned: () async {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ 보상 지급됨! 달냥이가 답하는 중…')),
-          );
-          await onReward();
-        },
-        onNotReady: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('광고 준비 중이야. 잠깐만 다시 눌러줘!')),
-          );
-        },
-        onRewardNotEarned: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('끝까지 봐야 보상이 지급돼!')),
-          );
-        },
-        onShowFailed: (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('광고 표시 실패: $e')),
-          );
-        },
-      );
+        // ✅ 1) 미리 로드(있으면 좋고 없어도 OK)
+        RewardedGate.preload(context);
+
+        // ✅ 2) 광고 표시 + 보상 처리
+        await RewardedGate.showAndReward(
+          context,
+          confirmTitle: '달냥이의 해석 힌트',
+          confirmMessage: confirmMessage,
+          onRewardEarned: () async {
+            await onReward(); // onReward 내부에서도 throw 가능 (여긴 이미 write_diary에서 catch 중이지만 이중 안전)
+          },
+          onNotReady: () => onNotReady?.call(),
+          onRewardNotEarned: () => onRewardNotEarned?.call(),
+          onShowFailed: (e) => onShowFailed?.call(e),
+        );
+      } catch (e) {
+        // ✅ 여기서 “횟수 제한(known)”도 다이얼로그로 뜸
+        await handleDalnyangError(context, e);
+      }
     }
+
 
     return Material(
       color: Colors.transparent,

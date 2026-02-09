@@ -1,4 +1,4 @@
-// write_diary.dart
+// lib/write_diary.dart
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -6,7 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:tarot_diary/cardpicker.dart' as cp;
 
-import '../ui/arcana_labels.dart';
+import '../arcana/arcana_labels.dart';
 import '../backend/diary_repo.dart';
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
@@ -21,7 +21,10 @@ import '../theme/app_theme.dart';
 import '../backend/device_id_service.dart';
 // 챗지피티 api
 import '../backend/dalnyang_api.dart';
-
+// ✅ 달냥이 공용 에러(롱에러/기타)
+import '../error/app_error_dialog.dart';
+// ✅ 공용 에러 핸들러(known/unknown 분기)
+import '../error/app_error_handler.dart';
 
 class WriteDiaryPage extends StatefulWidget {
   final DateTime? initialDate;
@@ -71,13 +74,22 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   bool _asking = false;
   String? _dallyangHint; // 생성/응답 저장
 
+  // ================== HELPERS ==================
+  String _cardKoName(int id) {
+    final koMajor = ArcanaLabels.majorKoName(id);
+    if (koMajor != null) return koMajor;
+
+    final fn = ArcanaLabels.kTarotFileNames[id];
+    return ArcanaLabels.minorKoFromFilename(fn) ??
+        ArcanaLabels.prettyEnTitleFromFilename(fn);
+  }
+
   void _markTouched() {
     if (_hydrating) return;
     if (_touched) return;
     setState(() => _touched = true);
   }
 
-  // ================== HELPERS ==================
   bool _hasText(String v) =>
       v.replaceAll(RegExp(r'[\s\u200B-\u200D\uFEFF]'), '').isNotEmpty;
 
@@ -100,11 +112,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
   bool get _canAskDallyang {
     final cardOk = _isRevealed && _pickedCards.length == _cardCount;
-    final beforeOk = _hasText(_beforeCtrl.text);
-    return cardOk && beforeOk && !_asking;
+    return cardOk && !_asking;
   }
 
-  // 카드 id -> 표시용 타이틀(영문 + 한글)
   String _cardTitle(int id) {
     final fn = ArcanaLabels.kTarotFileNames[id];
     final en = ArcanaLabels.prettyEnTitleFromFilename(fn);
@@ -119,6 +129,27 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   String _cardsSummaryLine() {
     final ids = _pickedCards.take(_cardCount).toList();
     return ids.map(_cardTitle).join(', ');
+  }
+
+  /// ✅ 광고 보기 전 사전 체크(남은 보상 횟수)
+  /// - 성공: 그냥 return
+  /// - 실패: DalnyangKnownException throw
+  Future<void> _precheckRewardBeforeAd() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw DalnyangKnownException('로그인이 필요해!');
+
+    final idToken = (await user.getIdToken(true)) ?? '';
+    if (idToken.isEmpty) {
+      throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
+    }
+
+    final deviceId = await DeviceIdService.getOrCreate();
+
+    // ✅ 문구/판단을 API 레이어로 위임
+    await DalnyangApi.precheckRewardOrThrow(
+      idToken: idToken,
+      deviceId: deviceId,
+    );
   }
 
   // ================== TYPO (AppTheme 기반) ==================
@@ -179,11 +210,14 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
     final add = '\n\n---\n${hint.trim()}\n';
     _markTouched();
+
     setState(() {
       _beforeCtrl.text = (_beforeCtrl.text.trimRight()) + add;
       _beforeCtrl.selection =
           TextSelection.collapsed(offset: _beforeCtrl.text.length);
+      _dallyangHint = null;
     });
+
     _toast('Before에 달냥이 답을 붙였어!');
   }
 
@@ -200,12 +234,8 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     });
   }
 
-
   // ================== 달냥이(광고 보상 후) ==================
   Future<void> _askDallyang() async {
-    // ✅ 중복 클릭 방지
-    final user = FirebaseAuth.instance.currentUser;
-
     if (_asking) {
       _toast('달냥이가 생각 중이야…');
       return;
@@ -216,75 +246,44 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       _toast('카드를 먼저 $_cardCount장 뽑아줘!');
       return;
     }
-    if (!_hasText(_beforeCtrl.text)) {
-      _toast('Before를 한 줄이라도 적고 눌러줘!');
-      return;
-    }
 
-    // ✅ 로딩 시작: 힌트 초기화 + 상태 on
-    if (mounted) {
-      setState(() {
-        _dallyangHint = null;
-        _asking = true;
-      });
-    }
+    setState(() {
+      _dallyangHint = null;
+      _asking = true;
+    });
     _toast('달냥이가 생각 중…');
 
     try {
-      // 1) 로그인 토큰
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        _toast('로그인이 필요해!');
-        return;
-      }
+      if (user == null) throw DalnyangKnownException('로그인이 필요해!');
 
-      // ✅ getIdToken이 String?로 잡히는 환경 대응
-      final String? idTokenNullable = await user.getIdToken(true);
-      final String idToken = idTokenNullable ?? '';
-
+      final String idToken = (await user.getIdToken(true)) ?? '';
       if (idToken.isEmpty) {
-        _toast('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-        return;
+        throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
       }
 
-      // 2) 디바이스 ID (서버 제한용)
       final deviceId = await DeviceIdService.getOrCreate();
 
-      // 3) 서버에 보낼 질문(핵심만)
-      final cardsLine = _cardsSummaryLine();
-      final before = _beforeCtrl.text.trim();
+      final ids = _pickedCards.take(_cardCount).toList();
+      final koCards = ids.map(_cardKoName).toList();
 
-      final String question = '''
-뽑힌 카드: $cardsLine
-Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : before}
+      final String question = '오늘의 카드 $_cardCount장을 해석해줘.';
 
-이 내용을 바탕으로 오늘의 흐름과, 내가 가장 조심할 것 1개/기회 1개를 짧게 정리해줘.
-'''.trim();
-
-      // 4) 서버 호출
       final answer = await DalnyangApi.ask(
         idToken: idToken,
         deviceId: deviceId,
         question: question,
-        context: {
-          'date': _selectedDate.toIso8601String(),
-          'card_count': _cardCount,
-          'cards': _pickedCards.take(_cardCount).toList(),
-        },
+        context: {'cards_ko': koCards},
       );
 
       if (!mounted) return;
 
-      // ✅ 답 반영
       setState(() => _dallyangHint = answer);
       _toast('달냥이가 답을 줬어!');
       _scrollToHintBox();
     } catch (e) {
-      if (!mounted) return;
-      final s = e.toString();
-      _errorLong('달냥이 호출 실패:\n$s');
-    }
-    finally {
+      await handleDalnyangError(context, e);
+    } finally {
       if (mounted) setState(() => _asking = false);
     }
   }
@@ -371,7 +370,8 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
 
       _hydrating = false;
     } catch (e) {
-      if (mounted) _toast('불러오기 실패: $e');
+      if (!mounted) return;
+      _errorLong('불러오기 실패:\n$e');
     } finally {
       _hydrating = false;
       if (mounted) setState(() => _loading = false);
@@ -423,7 +423,7 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
       _toast('저장이 너무 오래 걸려서 중단했어. (기기 저장소 확인)');
     } catch (e) {
       if (!mounted) return;
-      _toast('저장 실패: $e');
+      _errorLong('저장 실패:\n$e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -439,7 +439,7 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
     setState(() {
       _pickedCards = set.toList();
       _isRevealed = true;
-      _dallyangHint = null; // ✅ 카드 바뀌면 힌트 초기화
+      _dallyangHint = null;
     });
   }
 
@@ -461,7 +461,7 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
     setState(() {
       _pickedCards = pickedIds;
       _isRevealed = true;
-      _dallyangHint = null; // ✅ 카드 바뀌면 힌트 초기화
+      _dallyangHint = null;
     });
   }
 
@@ -488,8 +488,6 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
-
-      // ✅ 저장 + 홈 FAB (2개)
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(right: 6, bottom: 6),
         child: Column(
@@ -514,7 +512,6 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-
       body: _bg(
         child: SafeArea(
           child: Stack(
@@ -576,7 +573,6 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
     );
   }
 
-  // ✅ TopBox 우측 슬롯: 날짜 pill
   Widget _buildTopRightDatePill() {
     final accent = _a(AppTheme.gold, 0.75);
 
@@ -817,11 +813,7 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
         height: _actionBtnH,
         child: OutlinedButton.icon(
           onPressed: _resetPick,
-          icon: Icon(
-            Icons.refresh,
-            size: 16,
-            color: _a(AppTheme.tSecondary, 0.85),
-          ),
+          icon: Icon(Icons.refresh, size: 16, color: _a(AppTheme.tSecondary, 0.85)),
           label: Text(
             '카드 다시 뽑기',
             style: AppTheme.uiSmallLabel.copyWith(
@@ -905,33 +897,6 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
     );
   }
 
-  void _errorLong(String msg) {
-    if (!mounted) return;
-
-    // 기존 토스트가 짧게 지나가서, 에러는 스낵바로 오래 보여주기
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 12), // ✅ 여기서 시간 조절
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-          content: Text(
-            msg,
-            maxLines: 6,
-            overflow: TextOverflow.ellipsis,
-          ),
-          action: SnackBarAction(
-            label: '닫기',
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
-  }
-
-
   Widget _secondaryPickBtn({
     required String label,
     required IconData icon,
@@ -962,6 +927,11 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
         ),
       ),
     );
+  }
+
+  void _errorLong(String msg) {
+    if (!mounted) return;
+    showDalnyangErrorDialog(context, exceptionMessage: msg);
   }
 
   Widget _buildDiaryInputs() => _combinedDiaryBox();
@@ -1019,15 +989,19 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
       );
     }
 
-    // ✅ “달냥이에게 물어보기” 확인 메시지(공용 위젯에 전달)
     final confirmMsg = '''
 뽑힌 카드: ${_isRevealed && _pickedCards.length == _cardCount ? _cardsSummaryLine() : '아직 없음'}
-\nBefore 내용(요약): ${_hasText(_beforeCtrl.text) ? (_beforeCtrl.text.trim().length > 60 ? _beforeCtrl.text.trim().substring(0, 60) + '…' : _beforeCtrl.text.trim()) : '아직 없음'}
-\n\n광고 1회 시청 후 달냥이가 힌트를 줄게!
+
+Before 내용(요약): ${_hasText(_beforeCtrl.text)
+        ? (_beforeCtrl.text.trim().length > 60
+        ? '${_beforeCtrl.text.trim().substring(0, 60)}…'
+        : _beforeCtrl.text.trim())
+        : '아직 없음'}
+
+광고 1회 시청 후 달냥이가 힌트를 줄게!
 '''.trim();
 
     Widget hintBox() {
-      // ✅ 로딩 중 표시
       if (_asking) {
         return Container(
           key: _hintKey,
@@ -1138,7 +1112,6 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ✅ Before 타이틀 + 달냥이 버튼(오른쪽)
           Row(
             children: [
               Text('예상 기록 (Before)', style: _tsSectionTitle),
@@ -1146,18 +1119,15 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
               DallyangAskPill(
                 enabled: _canAskDallyang,
                 confirmMessage: confirmMsg,
+                precheckBeforeAd: _precheckRewardBeforeAd,
                 onReward: () async {
                   try {
                     final user = FirebaseAuth.instance.currentUser;
-                    if (user == null) {
-                      _toast('로그인이 필요해!');
-                      return;
-                    }
+                    if (user == null) throw DalnyangKnownException('로그인이 필요해!');
 
                     final idToken = (await user.getIdToken(true)) ?? '';
                     if (idToken.isEmpty) {
-                      _toast('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-                      return;
+                      throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
                     }
 
                     final deviceId = await DeviceIdService.getOrCreate();
@@ -1171,22 +1141,17 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
 
                     await _askDallyang();
                   } catch (e) {
-                    _errorLong('광고 보상 처리 실패:\n$e');
+                    await handleDalnyangError(context, e);
                   }
                 },
-
-
                 onDisabledTap: () {
                   if (!_isRevealed || _pickedCards.length != _cardCount) {
                     _toast('카드를 먼저 $_cardCount장 뽑아줘!');
                     return;
                   }
-                  if (!_hasText(_beforeCtrl.text)) {
-                    _toast('Before를 한 줄이라도 적고 눌러줘!');
-                    return;
-                  }
                   if (_asking) _toast('달냥이가 생각 중이야…');
                 },
+                onNotReady: () => _toast('광고 준비 중이야. 잠깐만 다시 눌러줘!'),
               ),
             ],
           ),
@@ -1197,14 +1162,10 @@ Before(요약): ${before.length > 240 ? before.substring(0, 240) + '…' : befor
             enabled: true,
             minLines: 7,
           ),
-
-          // ✅ 달냥이 힌트/로딩 표시
           hintBox(),
-
           const SizedBox(height: 12),
           Container(height: 1, color: _a(AppTheme.gold, 0.13)),
           const SizedBox(height: 12),
-
           Text('실제 기록 (After)', style: _tsSectionTitle),
           const SizedBox(height: 8),
           GestureDetector(
@@ -1291,4 +1252,3 @@ class _TightIconButton extends StatelessWidget {
     );
   }
 }
-

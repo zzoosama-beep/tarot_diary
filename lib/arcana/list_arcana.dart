@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_buttons.dart';
 import '../ui/layout_tokens.dart';
-import '../ui/arcana_labels.dart';
+import 'arcana_labels.dart';
 import '../list_sorting.dart';
 
 import '../backend/arcana_repo.dart';

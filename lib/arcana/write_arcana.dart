@@ -10,7 +10,7 @@ import '../ui/app_buttons.dart';
 import '../ui/app_toast.dart';
 
 // Card
-import '../ui/arcana_labels.dart';
+import 'arcana_labels.dart';
 import '../ui/tarot_card_preview.dart';
 
 // Left Float Tab
@@ -19,12 +19,15 @@ import 'lefttab_arcana_sheet.dart';
 // DB
 import '../backend/arcana_repo.dart';
 
+// Auth / Device / Dalnyang
+import 'package:firebase_auth/firebase_auth.dart';
+import '../backend/device_id_service.dart';
+import '../backend/dalnyang_api.dart';
+import '../error/app_error_handler.dart';
+
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
-// =========================================================
-// ✅ Enums (이 파일에서 쓰는 타입은 여기서 확실히 정의)
-// =========================================================
 class WriteArcanaPage extends StatefulWidget {
   const WriteArcanaPage({super.key});
 
@@ -59,6 +62,111 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   bool _myNoteOpen = true;
   bool _saving = false;
 
+  // ✅ 달냥이(아르카나 도감) 상태
+  bool _askingArcana = false;
+
+  bool get _canAskArcana => _selectedCard != null && !_askingArcana;
+
+  // =========================================================
+  // ✅ ArcanaLabels 기반: 카드명(ko/en) 생성 (로컬 선언 금지)
+  // =========================================================
+  String _arcanaKoNameById(int id) {
+    final koMajor = ArcanaLabels.majorKoName(id);
+    if (koMajor != null) return koMajor;
+
+    final fn = ArcanaLabels.kTarotFileNames[id];
+    final koMinor = ArcanaLabels.minorKoFromFilename(fn);
+    if (koMinor != null && koMinor.isNotEmpty) return koMinor;
+
+    return ArcanaLabels.prettyEnTitleFromFilename(fn);
+  }
+
+  String _arcanaEnNameById(int id) {
+    final fn = ArcanaLabels.kTarotFileNames[id];
+    return ArcanaLabels.prettyEnTitleFromFilename(fn);
+  }
+
+  /// ✅ 광고 보기 전 사전 체크(남은 보상 횟수)
+  Future<void> _precheckRewardBeforeAd() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw DalnyangKnownException('로그인이 필요해!');
+
+    final idToken = (await user.getIdToken(true)) ?? '';
+    if (idToken.isEmpty) {
+      throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
+    }
+
+    final deviceId = await DeviceIdService.getOrCreate();
+    final status = await DalnyangApi.getRewardStatus(
+      idToken: idToken,
+      deviceId: deviceId,
+    );
+
+    if (status.remaining <= 0) {
+      throw DalnyangKnownException(
+        '오늘 받을 수 있는 보상은 하루 ${status.limit}회까지야 🐾\n'
+            '오늘은 모두 사용했어. 내일 다시 시도해줘!',
+      );
+    }
+  }
+
+  /// ✅ 아르카나 도감용 달냥이 호출 → 기본 의미에 자동 붙이기
+  Future<void> _askArcanaFromDallyang() async {
+    if (_askingArcana) return;
+
+    final selected = _selectedCard;
+    if (selected == null) {
+      _toast('카드를 먼저 선택해줘!');
+      return;
+    }
+
+    setState(() => _askingArcana = true);
+    _toast('달냥이가 정리 중…');
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw DalnyangKnownException('로그인이 필요해!');
+
+      final idToken = (await user.getIdToken(true)) ?? '';
+      if (idToken.isEmpty) {
+        throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
+      }
+
+      final deviceId = await DeviceIdService.getOrCreate();
+
+      // ✅ 카드명(ko/en) - ArcanaLabels에서만 생성
+      final cardId = selected.id;
+      final cardKo = _arcanaKoNameById(cardId);
+      final cardEn = _arcanaEnNameById(cardId);
+
+      final answer = await DalnyangApi.ask(
+        idToken: idToken,
+        deviceId: deviceId,
+        question: '이 카드의 의미를 도감용으로 정리해줘.',
+        context: {
+          'source': 'arcana',
+          'card_ko': cardKo,
+          'card_en': cardEn,
+        },
+      );
+
+      if (!mounted) return;
+
+      // ✅ 기본 의미에 자동으로 붙이기
+      final add = '\n\n---\n${answer.trim()}\n';
+      setState(() {
+        _meaningC.text = (_meaningC.text.trimRight()) + add;
+        _meaningC.selection = TextSelection.collapsed(offset: _meaningC.text.length);
+      });
+
+      _toast('기본 의미에 달냥이 답을 붙였어!');
+    } catch (e) {
+      await handleDalnyangError(context, e);
+    } finally {
+      if (mounted) setState(() => _askingArcana = false);
+    }
+  }
+
   @override
   void dispose() {
     _meaningC.dispose();
@@ -68,7 +176,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   }
 
   // =========================================================
-  // ✅ 카드 메타 생성
+  // ✅ 카드 메타 생성 (title은 영문 유지, 한글은 ArcanaLabels로 표시)
   // =========================================================
   List<_ArcanaCard> _buildAllCards() {
     final names = ArcanaLabels.kTarotFileNames;
@@ -77,19 +185,19 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     for (int i = 0; i < names.length; i++) {
       final file = names[i];
 
-      final parsedId = int.tryParse(file.substring(0, 2));
-      final id = parsedId ?? i;
+      // ✅ cardId는 리스트 index(0~77)로 통일 (파일 앞 2자리도 결국 0~77)
+      final id = i;
 
       final path = 'asset/cards/$file';
       final isMajor = id <= 21;
-      final suit = isMajor ? null : _guessSuitFromFilename(file);
+      final suit = isMajor ? MinorSuit.unknown : _guessSuitFromFilename(file);
 
       cards.add(_ArcanaCard(
         id: id,
         assetPath: path,
-        title: _prettyName(file, id, isMajor: isMajor, suit: suit),
+        title: ArcanaLabels.prettyEnTitleFromFilename(file), // ✅ 영문 제목
         isMajor: isMajor,
-        suit: suit ?? MinorSuit.unknown,
+        suit: suit,
       ));
     }
 
@@ -108,32 +216,6 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       return MinorSuit.pentacles;
     }
     return MinorSuit.unknown;
-  }
-
-  String _prettyName(
-      String filename,
-      int id, {
-        required bool isMajor,
-        required MinorSuit? suit,
-      }) {
-    var s = filename.replaceAll('.png', '');
-
-    // 번호-이름 패턴이면 번호 제거
-    final dash = s.indexOf('-');
-    if (dash >= 0 && dash + 1 < s.length) s = s.substring(dash + 1);
-
-    // CamelCase 공백
-    s = s.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}');
-
-    // 마이너에서 파일명이 애매할 경우 임시 라벨
-    if (!isMajor) {
-      final ss = _suitLabel(suit ?? MinorSuit.unknown);
-      final minorIndex = (id - 22).clamp(0, 999);
-      final rankGuess = (minorIndex % 14) + 1;
-      final hasNumber = RegExp(r'\d').hasMatch(s);
-      if (!hasNumber) return '$ss $rankGuess';
-    }
-    return s;
   }
 
   String _suitLabel(MinorSuit s) {
@@ -182,13 +264,11 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     }
   }
 
-
   bool get _canSave {
     if (_selectedId == null) return false;
-    final hasAny = _meaningC.text.trim().isNotEmpty ||
+    return _meaningC.text.trim().isNotEmpty ||
         _myNoteC.text.trim().isNotEmpty ||
         _tagsC.text.trim().isNotEmpty;
-    return hasAny;
   }
 
   // =========================================================
@@ -200,17 +280,11 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   }
 
   // =========================================================
-  // ✅ (핵심) 카드 선택 시: 기존 저장 데이터 있으면 자동 로드
-  // - ArcanaRepo에 read(...)가 없더라도 "dynamic"으로 호출해서
-  //   네 repo가 read를 구현해두면 그대로 동작함.
-  //   (없으면 조용히 무시)
+  // ✅ 카드 선택 시: 기존 저장 데이터 있으면 자동 로드
   // =========================================================
   Future<void> _loadExistingNoteIfAny(int cardId) async {
     try {
       final repo = ArcanaRepo.I as dynamic;
-
-      // 기대 시그니처 예시:
-      // Future<Map<String,dynamic>?> read({required int cardId})
       final data = await repo.read(cardId: cardId);
 
       if (!mounted) return;
@@ -244,11 +318,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       return;
     }
 
-    // ✅ 표준 cardId는 "파일명 앞 2자리(00~77)" 기준으로 강제
-    final file = selected.assetPath.split('/').last; // 예: 00-TheFool.png
-    final parsed = (file.length >= 2) ? int.tryParse(file.substring(0, 2)) : null;
-    final id = parsed ?? selected.id;
-
+    final id = selected.id; // ✅ 0~77 통일
 
     if (!_canSave) {
       _toast('내용을 한 줄이라도 적어줘!');
@@ -257,8 +327,6 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
     setState(() => _saving = true);
     try {
-      final card = _selectedCard;
-
       await ArcanaRepo.I.save(
         cardId: id,
         title: selected.title,
@@ -267,10 +335,8 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         tags: _tagsC.text.trim(),
       );
 
-      // ✅ DEBUG: 실제로 DB에 들어갔는지 즉시 확인
       await ArcanaRepo.I.debugDump();
 
-      // ✅ 저장 직후: DB에서 다시 읽어서 “진짜 저장됐는지” 바로 검증
       final saved = await ArcanaRepo.I.read(cardId: id);
       if (saved == null) {
         _toast('⚠️ 저장 직후 read=null (cardId=$id)  DB 저장이 안 됨');
@@ -278,10 +344,8 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         _toast('✅ 저장 확인됨 (cardId=$id)');
       }
 
-
       _toast('저장 완료!');
 
-      // ✅ 토스트 잠깐 보여주고 홈으로 이동
       await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
       Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
@@ -347,13 +411,10 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       }
     });
 
-    // ✅ 선택 즉시 기존 저장 데이터 로드
     final selected = _selectedCard;
     if (selected != null) {
-      final id = selected.id; // 🔥 이미 int, 이미 index
-      await _loadExistingNoteIfAny(id);
+      await _loadExistingNoteIfAny(selected.id);
     }
-
   }
 
   // =========================================================
@@ -366,16 +427,13 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     return Scaffold(
       backgroundColor: AppTheme.bgSolid,
 
-      // ✅ 오른쪽 하단 저장 FAB
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           FabSlot(
             child: HomeFloatingButton(
-              onPressed: () {
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
-              },
+              onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false),
             ),
           ),
           const SizedBox(height: 10),
@@ -390,188 +448,103 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
 
       body: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            Column(
-              children: [
-                const SizedBox(height: LayoutTokens.scrollTopPad),
-                TopBox(
-                  left: Transform.translate(
-                    offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
-                    child: _TightIconButton(
-                      icon: Icons.arrow_back_rounded,
-                      color: AppTheme.headerInk,
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
-                  ),
-                  title: Text('78장 아르카나 기록', style: _tsTitle),
-                  right: const SizedBox.shrink(),
+            const SizedBox(height: LayoutTokens.scrollTopPad),
+            TopBox(
+              left: Transform.translate(
+                offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
+                child: _TightIconButton(
+                  icon: Icons.arrow_back_rounded,
+                  color: AppTheme.headerInk,
+                  onTap: () => Navigator.of(context).pop(),
                 ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: CenterBox(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
-                      child: Column(
-                        children: [
-                          _PickAndSummaryBox(
-                            selected: selected,
-                            onTap: _openPicker,
-                            tagsC: _tagsC,
-                            onTagsChanged: (_) => setState(() {}),
-                          ),
-                          const SizedBox(height: 12),
-                          _FieldBox(
-                            title: '기본 의미',
-                            hint: '이 카드가 상징하는 기본 의미를 짧게 적어봐요.',
-                            controller: _meaningC,
-                            isOpen: _meaningOpen,
-                            onToggle: () => setState(() => _meaningOpen = !_meaningOpen),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                          const SizedBox(height: 12),
-                          _FieldBox(
-                            title: '나의 해석 / 경험',
-                            hint: '내 기준으로 이 카드가 어떤 의미였는지 기록해요.',
-                            controller: _myNoteC,
-                            isOpen: _myNoteOpen,
-                            onToggle: () => setState(() => _myNoteOpen = !_myNoteOpen),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
+              title: Text('78장 아르카나 기록', style: _tsTitle),
+              right: const SizedBox.shrink(),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+            const SizedBox(height: 12),
+            Expanded(
+              child: CenterBox(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
+                  child: Column(
+                    children: [
+                      _PickAndSummaryBox(
+                        selected: selected,
+                        onTap: _openPicker,
+                        tagsC: _tagsC,
+                        onTagsChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 12),
 
-// =========================================================
-// 아래부터는 네 기존 그대로 유지 (필요 위젯들)
-// =========================================================
+                      _FieldBox(
+                        title: '기본 의미',
+                        hint: '이 카드가 상징하는 기본 의미를 짧게 적어봐요.',
+                        controller: _meaningC,
+                        isOpen: _meaningOpen,
+                        onToggle: () => setState(() => _meaningOpen = !_meaningOpen),
+                        onChanged: (_) => setState(() {}),
+                        trailing: DallyangAskPill(
+                          enabled: _canAskArcana,
+                          confirmMessage: '광고 1회 시청 후, 선택한 카드의 도감용 의미를 달냥이가 정리해줄게!',
+                          precheckBeforeAd: _precheckRewardBeforeAd,
+                          onReward: () async {
+                            try {
+                              final user = FirebaseAuth.instance.currentUser;
+                              if (user == null) throw DalnyangKnownException('로그인이 필요해!');
 
-class _SelectedSummary extends StatelessWidget {
-  final _ArcanaCard? card;
-  const _SelectedSummary({required this.card});
+                              final idToken = (await user.getIdToken(true)) ?? '';
+                              if (idToken.isEmpty) {
+                                throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
+                              }
 
-  @override
-  Widget build(BuildContext context) {
-    if (card == null) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: BoxDecoration(
-          color: _a(AppTheme.panelFill, 0.30),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _a(AppTheme.gold, 0.12), width: 1),
-        ),
-        child: Text(
-          '선택된 카드가 없어요. 위에서 카드를 골라줘.',
-          style: GoogleFonts.gowunDodum(
-            fontSize: 12.6,
-            fontWeight: FontWeight.w800,
-            color: _a(AppTheme.tSecondary, 0.92),
-          ),
-        ),
-      );
-    }
+                              final deviceId = await DeviceIdService.getOrCreate();
+                              final adEventId = '$deviceId-${DateTime.now().millisecondsSinceEpoch}';
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: _a(AppTheme.panelFill, 0.34),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _a(AppTheme.gold, 0.14), width: 1),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              width: 64,
-              height: 86,
-              color: _a(Colors.black, 0.12),
-              child: Image.asset(
-                card!.assetPath,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.style_rounded,
-                  size: 20,
-                  color: _a(AppTheme.tSecondary, 0.85),
+                              await DalnyangApi.creditRewardedAd(
+                                idToken: idToken,
+                                deviceId: deviceId,
+                                adEventId: adEventId,
+                              );
+
+                              await _askArcanaFromDallyang();
+                            } catch (e) {
+                              await handleDalnyangError(context, e);
+                            }
+                          },
+                          onDisabledTap: () {
+                            if (_selectedCard == null) _toast('카드를 먼저 선택해줘!');
+                            if (_askingArcana) _toast('달냥이가 정리 중이야…');
+                          },
+                          onNotReady: () => _toast('광고 준비 중이야. 잠깐만 다시 눌러줘!'),
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+                      _FieldBox(
+                        title: '나의 해석 / 경험',
+                        hint: '내 기준으로 이 카드가 어떤 의미였는지 기록해요.',
+                        controller: _myNoteC,
+                        isOpen: _myNoteOpen,
+                        onToggle: () => setState(() => _myNoteOpen = !_myNoteOpen),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  card!.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.gowunDodum(
-                    fontSize: 14.6,
-                    fontWeight: FontWeight.w900,
-                    color: _a(AppTheme.tPrimary, 0.95),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  card!.isMajor ? '메이저 아르카나 · ${card!.id}' : '마이너 아르카나',
-                  style: GoogleFonts.gowunDodum(
-                    fontSize: 12.3,
-                    fontWeight: FontWeight.w700,
-                    color: _a(AppTheme.tSecondary, 0.92),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Icon(Icons.chevron_right_rounded, size: 18, color: _a(AppTheme.tSecondary, 0.55)),
-        ],
-      ),
-    );
-  }
-}
-
-class _GlassPanel extends StatelessWidget {
-  final Widget child;
-  const _GlassPanel({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 20.0;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(r),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _a(AppTheme.panelFill, 0.55),
-          borderRadius: BorderRadius.circular(r),
-          border: Border.all(color: _a(AppTheme.gold, 0.22), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: _a(Colors.black, 0.18),
-              blurRadius: 16,
-              offset: const Offset(0, 10),
-            ),
           ],
         ),
-        child: child,
       ),
     );
   }
 }
+
+// =========================================================
+// Widgets
+// =========================================================
 
 class _TightIconButton extends StatelessWidget {
   final IconData icon;
@@ -602,7 +575,7 @@ class _TightIconButton extends StatelessWidget {
 
 class _ArcanaCard {
   final int id;
-  final String title;
+  final String title; // 영문 타이틀
   final String assetPath;
   final bool isMajor;
   final MinorSuit suit;
@@ -617,31 +590,6 @@ class _ArcanaCard {
 }
 
 class _PickAndSummaryBox extends StatelessWidget {
-  static const List<String> _majorKo = [
-    '바보',
-    '마법사',
-    '고위 여사제',
-    '여황제',
-    '황제',
-    '교황',
-    '연인',
-    '전차',
-    '힘',
-    '은둔자',
-    '운명의 수레바퀴',
-    '정의',
-    '매달린 사람',
-    '죽음',
-    '절제',
-    '악마',
-    '탑',
-    '별',
-    '달',
-    '태양',
-    '심판',
-    '세계',
-  ];
-
   final _ArcanaCard? selected;
   final VoidCallback onTap;
 
@@ -658,6 +606,19 @@ class _PickAndSummaryBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final has = selected != null;
+
+    String subtitle() {
+      if (!has) return '카드 선택 버튼을 눌러서 카드를 선택해줘';
+
+      if (selected!.isMajor) {
+        final ko = ArcanaLabels.majorKoName(selected!.id) ?? '';
+        return '$ko - 메이저 아르카나';
+      }
+
+      final fn = ArcanaLabels.kTarotFileNames[selected!.id];
+      final koMinor = ArcanaLabels.minorKoFromFilename(fn) ?? '마이너 아르카나';
+      return koMinor;
+    }
 
     return Material(
       color: Colors.transparent,
@@ -705,11 +666,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              has
-                                  ? (selected!.isMajor
-                                  ? '${_majorKo[selected!.id]} - 메이저 아르카나'
-                                  : '마이너 아르카나')
-                                  : '카드 선택 버튼을 눌러서 카드를 선택해줘',
+                              subtitle(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.gowunDodum(
@@ -839,51 +796,44 @@ class _SelectedSummaryInner extends StatelessWidget {
         Expanded(
           child: SizedBox(
             height: 170,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: tagsC,
-                    onChanged: onTagsChanged,
-                    expands: true,
-                    minLines: null,
-                    maxLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: GoogleFonts.gowunDodum(
-                      fontSize: 13.6,
-                      fontWeight: FontWeight.w700,
-                      color: _a(AppTheme.tPrimary, 0.95),
-                      height: 1.25,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: '키워드 입력\n(예: #시작, #도전, #자유)',
-                      hintStyle: GoogleFonts.gowunDodum(
-                        fontSize: 13.0,
-                        fontWeight: FontWeight.w600,
-                        color: _a(AppTheme.tSecondary, 0.75),
-                        height: 1.2,
-                      ),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
-                      filled: true,
-                      fillColor: _a(AppTheme.panelFill, 0.40),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.26), width: 1),
-                      ),
-                    ),
-                  ),
+            child: TextField(
+              controller: tagsC,
+              onChanged: onTagsChanged,
+              expands: true,
+              minLines: null,
+              maxLines: null,
+              textAlignVertical: TextAlignVertical.top,
+              style: GoogleFonts.gowunDodum(
+                fontSize: 13.6,
+                fontWeight: FontWeight.w700,
+                color: _a(AppTheme.tPrimary, 0.95),
+                height: 1.25,
+              ),
+              decoration: InputDecoration(
+                hintText: '키워드 입력\n(예: #시작, #도전, #자유)',
+                hintStyle: GoogleFonts.gowunDodum(
+                  fontSize: 13.0,
+                  fontWeight: FontWeight.w600,
+                  color: _a(AppTheme.tSecondary, 0.75),
+                  height: 1.2,
                 ),
-              ],
+                isDense: true,
+                contentPadding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
+                filled: true,
+                fillColor: _a(AppTheme.panelFill, 0.40),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.26), width: 1),
+                ),
+              ),
             ),
           ),
         ),
@@ -900,6 +850,9 @@ class _FieldBox extends StatelessWidget {
   final VoidCallback onToggle;
   final ValueChanged<String> onChanged;
 
+  // ✅ 우측 trailing (달냥이에게 물어보기 등)
+  final Widget? trailing;
+
   const _FieldBox({
     required this.title,
     required this.hint,
@@ -907,6 +860,7 @@ class _FieldBox extends StatelessWidget {
     required this.isOpen,
     required this.onToggle,
     required this.onChanged,
+    this.trailing,
   });
 
   @override
@@ -935,14 +889,15 @@ class _FieldBox extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                InkWell(
-                  onTap: onToggle,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Container(
+                // ✅ 헤더: 토글 영역과 trailing 클릭 영역 분리
+                Row(
+                  children: [
+                    InkWell(
+                      onTap: onToggle,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: _a(AppTheme.gold, 0.12),
@@ -959,16 +914,26 @@ class _FieldBox extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const Spacer(),
-                        Icon(
+                      ),
+                    ),
+                    const Spacer(),
+                    if (trailing != null) trailing!,
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: onToggle,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
                           isOpen ? Icons.expand_less_rounded : Icons.expand_more_rounded,
                           size: 22,
                           color: _a(AppTheme.tSecondary, 0.75),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
+
                 if (isOpen) ...[
                   const SizedBox(height: 10),
                   TextField(

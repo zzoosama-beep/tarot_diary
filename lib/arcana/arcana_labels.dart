@@ -1,5 +1,9 @@
 // lib/ui/arcana_labels.dart
 
+enum ArcanaGroup { major, minor }
+enum MinorSuit { wands, cups, swords, pentacles, unknown }
+
+
 class ArcanaLabels {
   ArcanaLabels._();
 
@@ -170,6 +174,14 @@ class ArcanaLabels {
     if (koMinor != null && koMinor.isNotEmpty) return '$id. $enTitle ($koMinor)';
 
     return '$id. $enTitle';
+  }
+
+  static String koNameOfId(int id) {
+    final major = majorKoName(id);
+    if (major != null) return major;
+
+    final fn = kTarotFileNames[id];
+    return minorKoFromFilename(fn) ?? prettyEnTitleFromFilename(fn);
   }
 }
 
