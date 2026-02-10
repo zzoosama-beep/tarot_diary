@@ -25,15 +25,23 @@ import '../backend/device_id_service.dart';
 import '../backend/dalnyang_api.dart';
 import '../error/app_error_handler.dart';
 
+
+
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
 class WriteArcanaPage extends StatefulWidget {
-  const WriteArcanaPage({super.key});
+  final int? cardId;
+
+  const WriteArcanaPage({
+    super.key,
+    this.cardId,
+  });
 
   @override
   State<WriteArcanaPage> createState() => _WriteArcanaPageState();
 }
+
 
 class _WriteArcanaPageState extends State<WriteArcanaPage> {
   // ================== UI ==================
@@ -66,6 +74,32 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   bool _askingArcana = false;
 
   bool get _canAskArcana => _selectedCard != null && !_askingArcana;
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (widget.cardId == null) {
+      // ✅ 홈에서 그냥 들어온 케이스: 카드 선택 유도
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openPickDialogOrRoute();
+      });
+    } else {
+      // ✅ 특정 카드 편집 케이스
+      final id = widget.cardId!;
+      _selectedId = id; // ✅ 먼저 선택 상태로 잡아주고
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _loadExistingNoteIfAny(id); // ✅ 기존 저장 데이터 로드
+        if (mounted) setState(() {});     // ✅ 화면 갱신
+      });
+    }
+  }
+
+
+  void _openPickDialogOrRoute() {
+    Navigator.of(context).pushReplacementNamed('/list_arcana');
+  }
+
 
   // =========================================================
   // ✅ ArcanaLabels 기반: 카드명(ko/en) 생성 (로컬 선언 금지)

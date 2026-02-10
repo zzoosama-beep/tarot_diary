@@ -2,14 +2,14 @@ import 'dart:ui'; // ✅ ImageFilter.blur
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'diary/write_diary.dart';
-import 'diary/calander_diary.dart';
-import 'arcana/write_arcana.dart';
-import 'arcana/list_arcana.dart';
+import '../diary/write_diary.dart';
+import '../diary/calander_diary.dart';
+import '../arcana/write_arcana.dart';
+import '../arcana/list_arcana.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'login.dart'; // ✅ 메뉴 진입 시 로그인 요구 (그대로 유지)
-import 'backend/auth_service.dart'; // ✅ 현재 로그인 상태 표시/수동 로그인용
+import '../login.dart'; // ✅ 메뉴 진입 시 로그인 요구 (그대로 유지)
+import '../backend/auth_service.dart'; // ✅ (방금 만든 파일)
 
 // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -23,6 +23,37 @@ class MainHomePage extends StatefulWidget {
 
 class _MainHomePageState extends State<MainHomePage> {
   static const backgroundColor = Color(0xFF2E294E);
+
+  static const String _topPath = 'asset/tarot_diary_maintop.webp';
+  static const String _bottomPath = 'asset/tarot_diary_mainbottom.webp';
+
+  @override
+  void initState() {
+    super.initState();
+
+    // ✅ 첫 프레임 이후에만 미리 디코딩/캐시
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final mq = MediaQuery.of(context);
+      final dpr = mq.devicePixelRatio;
+      final wPx = (mq.size.width * dpr).round();
+      final hPx = (mq.size.height * dpr).round();
+
+      final topProvider = ResizeImage(
+        const AssetImage(_topPath),
+        width: wPx,
+      );
+      final bottomProvider = ResizeImage(
+        const AssetImage(_bottomPath),
+        width: wPx,
+        height: hPx,
+      );
+
+      precacheImage(topProvider, context);
+      precacheImage(bottomProvider, context);
+    });
+  }
 
   /// ✅ B안: 홈은 구경 OK, 기능 진입(액션) 시 login.dart로 로그인 요구
   Future<void> _openWithLogin(
@@ -42,74 +73,66 @@ class _MainHomePageState extends State<MainHomePage> {
     Navigator.of(context).push(_fadeRoute(page));
   }
 
-  Future<void> _manualSignIn() async {
-    try {
-      await AuthService.ensureSignedIn(
-        forceAccountChooser: true,
-        hardDisconnect: false,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('구글 로그인 완료')),
-      );
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('로그인 실패: $e')),
-      );
-    }
-  }
-
-  Future<void> _manualSignOut() async {
-    await AuthService.signOut(hardDisconnect: false);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('로그아웃 완료')),
-    );
-    setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final dpr = mq.devicePixelRatio;
+    final wPx = (mq.size.width * dpr).round();
+    final hPx = (mq.size.height * dpr).round();
+
+    final topProvider = ResizeImage(
+      const AssetImage(_topPath),
+      width: wPx,
+    );
+
+    final bottomProvider = ResizeImage(
+      const AssetImage(_bottomPath),
+      width: wPx,
+      height: hPx,
+    );
+
     return Scaffold(
       backgroundColor: backgroundColor,
       body: Column(
         children: [
           // =====================================================
-          // TOP : 고양이 이미지 + 네온 텍스트 (유지)
+          // TOP
           // =====================================================
-          Stack(
-            children: [
-              Image.asset(
-                'asset/tarot_diary_maintop.png',
-                width: double.infinity,
-                fit: BoxFit.fitWidth,
-                alignment: Alignment.topCenter,
-              ),
-              const Positioned(
-                left: 100,
-                top: 70,
-                child: MagicNeonBox(
-                  child: NeonMessageText(
-                    text: '아직 기록이 없네.\n한 장만 남겨볼까?',
+          RepaintBoundary(
+            child: Stack(
+              children: [
+                Image(
+                  image: topProvider,
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  alignment: Alignment.topCenter,
+                ),
+                const Positioned(
+                  left: 100,
+                  top: 70,
+                  child: MagicNeonBox(
+                    child: NeonMessageText(
+                      text: '아직 기록이 없네.\n한 장만 남겨볼까?',
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
 
           // =====================================================
-          // BOTTOM : 배경 + 메뉴 패널 (원본 느낌 복구)
+          // BOTTOM
           // =====================================================
           Expanded(
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: Image.asset(
-                    'asset/tarot_diary_mainbottom.png',
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
+                  child: RepaintBoundary(
+                    child: Image(
+                      image: bottomProvider,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                    ),
                   ),
                 ),
 
@@ -117,16 +140,18 @@ class _MainHomePageState extends State<MainHomePage> {
                 Align(
                   alignment: Alignment.topCenter,
                   child: IgnorePointer(
-                    child: Container(
-                      height: 100,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            _a(backgroundColor, 0.80),
-                            _a(backgroundColor, 0.00),
-                          ],
+                    child: RepaintBoundary(
+                      child: Container(
+                        height: 100,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              _a(backgroundColor, 0.80),
+                              _a(backgroundColor, 0.00),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -137,22 +162,17 @@ class _MainHomePageState extends State<MainHomePage> {
                   builder: (context, c) {
                     final h = c.maxHeight;
 
-                    // ✅ 원래처럼 위에서 살짝 내려오게 (너가 쓰던 값 유지)
                     const double ratio = 0.42;
                     const double lift = 82.0;
                     final topY = (h * ratio - lift).clamp(0.0, h);
 
-                    // ✅ 원본처럼 최대 폭 360
                     final panelW = (c.maxWidth - 44).clamp(0.0, 360.0);
 
-                    // ✅ 로그인 상태 패널은 메뉴 패널보다 위쪽에 살짝
                     final authTopY = (topY - 92).clamp(0.0, h);
 
                     return Stack(
                       children: [
-                        // ==========================
-                        // ✅ 로그인 상태 확인 패널
-                        // ==========================
+                        // ✅ 로그인 상태 패널
                         Positioned(
                           left: 0,
                           right: 0,
@@ -160,16 +180,15 @@ class _MainHomePageState extends State<MainHomePage> {
                           child: Align(
                             alignment: Alignment.topCenter,
                             child: Padding(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 22),
-                              child: _AuthStatusPanel(width: panelW),
+                              padding: const EdgeInsets.symmetric(horizontal: 22),
+                              child: RepaintBoundary(
+                                child: _AuthStatusPanel(width: panelW),
+                              ),
                             ),
                           ),
                         ),
 
-                        // ==========================
-                        // ✅ 기존 메뉴 패널(그대로)
-                        // ==========================
+                        // ✅ 메뉴 패널
                         Positioned(
                           left: 0,
                           right: 0,
@@ -177,72 +196,69 @@ class _MainHomePageState extends State<MainHomePage> {
                           child: Align(
                             alignment: Alignment.topCenter,
                             child: Padding(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 22),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _HomeBigPanel(
-                                    width: panelW,
-                                    title: '묘한 미래일기',
-                                    subtitle:
-                                    '내일은 어떤 하루가 될지 카드를 뽑고 기록해봐요',
-                                    leftAction: _HomeActionCardData(
-                                      icon: Icons.edit_note_rounded,
-                                      label: '내일의\n타로일기 쓰기',
-                                      onTap: () {
-                                        _openWithLogin(
-                                          context,
-                                          const WriteDiaryPage(),
-                                          reason:
-                                          '일기를 저장/불러오려면 구글 로그인이 필요해.\n(기기 변경/재설치 대비)',
-                                        );
-                                      },
+                              padding: const EdgeInsets.symmetric(horizontal: 22),
+                              child: RepaintBoundary(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _HomeBigPanel(
+                                      width: panelW,
+                                      title: '묘한 미래일기',
+                                      subtitle: '내일은 어떤 하루가 될지 카드를 뽑고 기록해봐요',
+                                      leftAction: _HomeActionCardData(
+                                        icon: Icons.edit_note_rounded,
+                                        label: '내일의\n타로일기 쓰기',
+                                        onTap: () {
+                                          _openWithLogin(
+                                            context,
+                                            const WriteDiaryPage(),
+                                            reason:
+                                            '일기를 저장/불러오려면 구글 로그인이 필요해.\n(기기 변경/재설치 대비)',
+                                          );
+                                        },
+                                      ),
+                                      rightAction: _HomeActionCardData(
+                                        icon: Icons.calendar_month_rounded,
+                                        label: '내 타로일기\n보관함',
+                                        onTap: () {
+                                          _openWithLogin(
+                                            context,
+                                            const CalanderDiaryPage(),
+                                            reason: '보관함에서 일기 기록을 관리하려면 구글 로그인이 필요해.',
+                                          );
+                                        },
+                                      ),
                                     ),
-                                    rightAction: _HomeActionCardData(
-                                      icon: Icons.calendar_month_rounded,
-                                      label: '내 타로일기\n보관함',
-                                      onTap: () {
-                                        _openWithLogin(
-                                          context,
-                                          const CalanderDiaryPage(),
-                                          reason:
-                                          '보관함에서 일기 기록을 관리하려면 구글 로그인이 필요해.',
-                                        );
-                                      },
+                                    const SizedBox(height: 16),
+                                    _HomeBigPanel(
+                                      width: panelW,
+                                      title: '비밀의 타로도감',
+                                      subtitle: '78장 아르카나의 의미를 차곡차곡 모아봐요',
+                                      leftAction: _HomeActionCardData(
+                                        icon: Icons.bookmark_add_rounded,
+                                        label: '78장 아르카나\n기록하기',
+                                        onTap: () {
+                                          _openWithLogin(
+                                            context,
+                                            const WriteArcanaPage(),
+                                            reason: '도감 기록은 저장이 들어가서 구글 로그인이 필요해.',
+                                          );
+                                        },
+                                      ),
+                                      rightAction: _HomeActionCardData(
+                                        icon: Icons.style_rounded,
+                                        label: '타로카드\n도감 보기',
+                                        onTap: () {
+                                          _openWithLogin(
+                                            context,
+                                            const ListArcanaPage(),
+                                            reason: '도감 데이터를 불러오려면 구글 로그인이 필요해.',
+                                          );
+                                        },
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _HomeBigPanel(
-                                    width: panelW,
-                                    title: '비밀의 타로도감',
-                                    subtitle: '78장 아르카나의 의미를 차곡차곡 모아봐요',
-                                    leftAction: _HomeActionCardData(
-                                      icon: Icons.bookmark_add_rounded,
-                                      label: '78장 아르카나\n기록하기',
-                                      onTap: () {
-                                        _openWithLogin(
-                                          context,
-                                          const WriteArcanaPage(),
-                                          reason:
-                                          '도감 기록은 저장이 들어가서 구글 로그인이 필요해.',
-                                        );
-                                      },
-                                    ),
-                                    rightAction: _HomeActionCardData(
-                                      icon: Icons.style_rounded,
-                                      label: '타로카드\n도감 보기',
-                                      onTap: () {
-                                        _openWithLogin(
-                                          context,
-                                          const ListArcanaPage(),
-                                          reason:
-                                          '도감 데이터를 불러오려면 구글 로그인이 필요해.',
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -261,9 +277,7 @@ class _MainHomePageState extends State<MainHomePage> {
 }
 
 /// ===============================
-/// ✅ 홈 상단에 붙는 로그인 상태 패널
-/// - login.dart는 "진입 시 로그인 요구" 그대로 사용
-/// - 여기는 "내가 로그인 되어있나?" 확인/수동 로그인용
+/// ✅ 로그인 상태 패널
 /// ===============================
 class _AuthStatusPanel extends StatelessWidget {
   final double width;
@@ -302,12 +316,12 @@ class _AuthStatusPanel extends StatelessWidget {
           child: StreamBuilder<User?>(
             stream: AuthService.authStateChanges(),
             builder: (context, snap) {
-              final signedIn = AuthService.isSignedIn;
-              final u = AuthService.currentUser;
+              final u = snap.data;
+              final signedIn = (u != null && !u.isAnonymous);
 
               final statusTitle = signedIn ? '구글 계정 연결됨 ✅' : '구글 계정 연결 안됨 ❌';
               final sub = signedIn
-                  ? 'EMAIL: ${u?.email ?? '-'}'
+                  ? 'EMAIL: ${u.email ?? '-'}'
                   : '지금 로그인하면 기기 변경/재설치에도 기록을 안전하게 쓸 수 있어.';
 
               return Column(
@@ -445,7 +459,7 @@ class _AuthMiniButton extends StatelessWidget {
 }
 
 // =========================================================
-// ✅ 큰 박스(섹션) + 내부 2컬럼 액션 (원본 느낌 복구)
+// ✅ 큰 박스(섹션) + 내부 2컬럼 액션
 // =========================================================
 
 class _HomeActionCardData {
@@ -475,7 +489,6 @@ class _HomeBigPanel extends StatelessWidget {
     required this.rightAction,
   });
 
-  // ✅ 원본 톤
   static const Color panelBg = Color(0xFF3B3562);
   static const Color panelBg2 = Color(0xFF322D58);
 
@@ -767,7 +780,7 @@ class _NeonMessageTextState extends State<NeonMessageText>
 
         final c1 = _a(const Color(0xFFF8F6FF), 0.85);
         final c2 = const Color(0xFFF8F6FF);
-        final textColor = Color.lerp(c1, c2, v)!;
+        final textColor = Color.lerp(c1, c2, v) ?? c2;
 
         return Text(
           widget.text,

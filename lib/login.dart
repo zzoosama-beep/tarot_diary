@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../backend/auth_service.dart';
+import 'backend/auth_service.dart';
 
 /// ✅ B안: "액션 시 로그인 필요"를 위한 공용 게이트
 /// - 이미 로그인(익명X)이면 true

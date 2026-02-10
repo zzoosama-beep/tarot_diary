@@ -9,6 +9,10 @@ class RewardedGate {
   static RewardedAd? _ad;
   static bool _loading = false;
 
+  // ✅ MobileAds 지연 초기화(1회 보장)
+  static bool _sdkInitialized = false;
+  static Future<void>? _initFuture;
+
   // ✅ 테스트 유닛(개발용)
   static const String _androidTest = 'ca-app-pub-3940256099942544/5224354917';
   static const String _iosTest = 'ca-app-pub-3940256099942544/1712485313';
@@ -18,9 +22,22 @@ class RewardedGate {
 
   static bool get ready => _ad != null;
 
-  static void preload(BuildContext context) {
+  /// ✅ 광고 SDK 초기화 (main.dart에서 하지 않고, 필요할 때 1회만)
+  static Future<void> ensureInitialized() {
+    if (_sdkInitialized) return Future.value();
+    _initFuture ??= () async {
+      await MobileAds.instance.initialize();
+      _sdkInitialized = true;
+    }();
+    return _initFuture!;
+  }
+
+  /// ✅ Rewarded 미리 로드 (지연 초기화 포함)
+  static Future<void> preload(BuildContext context) async {
     if (_loading || _ad != null) return;
     _loading = true;
+
+    await ensureInitialized();
 
     RewardedAd.load(
       adUnitId: unitId(Theme.of(context).platform),
@@ -35,12 +52,14 @@ class RewardedGate {
             onAdDismissedFullScreenContent: (ad) {
               ad.dispose();
               _ad = null;
+              // 다음 광고 미리 로드(비동기)
               preload(context);
             },
             onAdFailedToShowFullScreenContent: (ad, err) {
               ad.dispose();
               _ad = null;
               _loading = false;
+              // 다음 광고 미리 로드(비동기)
               preload(context);
             },
           );
@@ -95,6 +114,9 @@ class RewardedGate {
         /// ✅ 광고 표시 자체가 실패했을 때
         void Function(Object error)? onShowFailed,
       }) async {
+    // ✅ show 전에 SDK 초기화 보장
+    await ensureInitialized();
+
     final ok = await confirmDialog(
       context,
       title: confirmTitle,
@@ -105,6 +127,7 @@ class RewardedGate {
     final ad = _ad;
     if (ad == null) {
       onNotReady?.call();
+      // 다음을 위해 미리 로드
       preload(context);
       return;
     }
@@ -128,12 +151,11 @@ class RewardedGate {
         settled = true;
 
         if (rewarded) {
-          // ✅ 보상 확정 → 여기서 1번만 달냥 호출
+          // ✅ 보상 확정 → 여기서 1번만 호출
           try {
             await onRewardEarned();
-          } catch (e) {
-            // 콜백 내부 에러는 여기서 삼키지 말고, 필요하면 상위에서 토스트 처리
-            // (원하면 onShowFailed 같은 별도 처리 추가 가능)
+          } catch (_) {
+            // 콜백 내부 에러는 상위(UI)에서 잡아 app_error_dialog로 처리
             rethrow;
           }
         } else {

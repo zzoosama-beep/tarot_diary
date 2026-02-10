@@ -561,9 +561,12 @@ class _ArcanaListTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          // TODO: write_arcana로 이동(cardId 전달)
-        },
+          onTap: () {
+            Navigator.of(context).pushNamed(
+              '/write_arcana',
+              arguments: item.id,
+            );
+          },
         child: Ink(
           decoration: BoxDecoration(
             color: _a(AppTheme.panelFill, hasNote ? 0.72 : 0.50),

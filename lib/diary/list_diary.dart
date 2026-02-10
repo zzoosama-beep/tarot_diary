@@ -29,6 +29,10 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   // ===== 월 상태 =====
   late DateTime _focusedMonth;
 
+  // ✅ 카드 접기 상태(날짜별)
+  final Map<String, bool> _cardsExpandedByKey = {};
+  String _rowKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
+
   // ✅ 월 리스트 데이터
   bool _loading = false;
   List<_DiaryRowModel> _rows = [];
@@ -419,10 +423,23 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                               Column(
                                 children: [
                                   for (int i = 0; i < rows.length; i++) ...[
-                                    _DiaryListRow(
-                                      model: rows[i],
-                                      onTap: () => _openWriteFor(rows[i].date),
-                                    ),
+                                    Builder(builder: (_) {
+                                      final k = _rowKey(rows[i].date);
+                                      final expanded = _cardsExpandedByKey[k] ?? true;
+
+                                      return _DiaryListRow(
+                                        model: rows[i],
+                                        onTap: () => _openWriteFor(rows[i].date),
+
+                                        // ✅ 추가
+                                        cardsExpanded: expanded,
+                                        onToggleCards: () {
+                                          setState(() {
+                                            _cardsExpandedByKey[k] = !expanded;
+                                          });
+                                        },
+                                      );
+                                    }),
                                     const SizedBox(height: 10),
                                   ]
                                 ],
@@ -467,9 +484,15 @@ class _DiaryListRow extends StatelessWidget {
   final _DiaryRowModel model;
   final VoidCallback onTap;
 
+  // ✅ 추가: 카드 접힘 상태 + 토글 콜백
+  final bool cardsExpanded;
+  final VoidCallback onToggleCards;
+
   const _DiaryListRow({
     required this.model,
     required this.onTap,
+    required this.cardsExpanded,
+    required this.onToggleCards,
   });
 
 
@@ -508,6 +531,9 @@ class _DiaryListRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final gold = AppTheme.gold;
 
+    // ✅ 추가: 카드 접힘일 때 더 많이 보여주기
+    final int lines = cardsExpanded ? 2 : 6;
+
     final beforeTrim = model.beforeText.trim();
     final afterTrim = model.afterText.trim();
 
@@ -525,6 +551,7 @@ class _DiaryListRow extends StatelessWidget {
         badgeTone: tone,
         text: beforeTrim,
         textTone: AppTheme.tPrimary.withOpacity(0.86),
+        maxLines: lines, // ✅ 추가
       );
     }
 
@@ -581,12 +608,40 @@ class _DiaryListRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
 
-                Center(
-                  child: _CardThumbRow(
-                    cardIds: model.cardIds,
-                    tagPrefix: 'list_${model.date.toIso8601String()}',
-                  ),
+                Column(
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '카드',
+                          style: GoogleFonts.gowunDodum(
+                            color: AppTheme.tPrimary.withOpacity(0.72),
+                            fontSize: 12.0,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        _TinyGhostChip(
+                          icon: cardsExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                          label: cardsExpanded ? '접기' : '펼치기',
+                          onTap: onToggleCards,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    if (cardsExpanded)
+                      Center(
+                        child: _CardThumbRow(
+                          cardIds: model.cardIds,
+                          tagPrefix: 'list_${model.date.toIso8601String()}',
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 6),
+                  ],
                 ),
+
 
                 const SizedBox(height: 10),
                 Container(height: 1, color: gold.withOpacity(0.12)),
@@ -851,11 +906,15 @@ class _LabeledText2Lines extends StatelessWidget {
   final String text;
   final Color textTone;
 
+  // ✅ 추가
+  final int maxLines;
+
   const _LabeledText2Lines({
     required this.badge,
     required this.badgeTone,
     required this.text,
     required this.textTone,
+    this.maxLines = 2,
   });
 
   @override
@@ -867,7 +926,7 @@ class _LabeledText2Lines extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           text,
-          maxLines: 2,
+          maxLines: maxLines,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.gowunDodum(
             color: textTone,
