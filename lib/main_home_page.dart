@@ -1,4 +1,5 @@
-import 'dart:ui'; // ✅ ImageFilter.blur
+// lib/main_home_page.dart
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -8,8 +9,8 @@ import '../arcana/write_arcana.dart';
 import '../arcana/list_arcana.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import '../login.dart'; // ✅ 메뉴 진입 시 로그인 요구 (그대로 유지)
-import '../backend/auth_service.dart'; // ✅ (방금 만든 파일)
+import '../login.dart';
+import '../backend/auth_service.dart';
 
 // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -24,8 +25,9 @@ class MainHomePage extends StatefulWidget {
 class _MainHomePageState extends State<MainHomePage> {
   static const backgroundColor = Color(0xFF2E294E);
 
-  static const String _topPath = 'asset/tarot_diary_maintop.webp';
-  static const String _bottomPath = 'asset/tarot_diary_mainbottom.webp';
+  // ✅ 새 배경/프레임
+  static const String _bgPath = 'asset/main_bg.webp';
+  static const String _framePath = 'asset/flower_frame.webp';
 
   @override
   void initState() {
@@ -40,18 +42,20 @@ class _MainHomePageState extends State<MainHomePage> {
       final wPx = (mq.size.width * dpr).round();
       final hPx = (mq.size.height * dpr).round();
 
-      final topProvider = ResizeImage(
-        const AssetImage(_topPath),
-        width: wPx,
-      );
-      final bottomProvider = ResizeImage(
-        const AssetImage(_bottomPath),
+      final bgProvider = ResizeImage(
+        const AssetImage(_bgPath),
         width: wPx,
         height: hPx,
       );
 
-      precacheImage(topProvider, context);
-      precacheImage(bottomProvider, context);
+      // 프레임은 가로 기준으로만 캐시해도 충분
+      final frameProvider = ResizeImage(
+        const AssetImage(_framePath),
+        width: wPx,
+      );
+
+      precacheImage(bgProvider, context);
+      precacheImage(frameProvider, context);
     });
   }
 
@@ -80,194 +84,164 @@ class _MainHomePageState extends State<MainHomePage> {
     final wPx = (mq.size.width * dpr).round();
     final hPx = (mq.size.height * dpr).round();
 
-    final topProvider = ResizeImage(
-      const AssetImage(_topPath),
-      width: wPx,
-    );
-
-    final bottomProvider = ResizeImage(
-      const AssetImage(_bottomPath),
+    final bgProvider = ResizeImage(
+      const AssetImage(_bgPath),
       width: wPx,
       height: hPx,
     );
 
+    final frameProvider = ResizeImage(
+      const AssetImage(_framePath),
+      width: wPx,
+    );
+
+    final frameTopPad = (mq.size.height * 0.02).clamp(10.0, 24.0);
     return Scaffold(
       backgroundColor: backgroundColor,
-      body: Column(
+      body: Stack(
         children: [
           // =====================================================
-          // TOP
+          // ✅ 1) 배경(main_bg.webp) - 전체 cover
           // =====================================================
-          RepaintBoundary(
-            child: Stack(
-              children: [
-                Image(
-                  image: topProvider,
-                  width: double.infinity,
-                  fit: BoxFit.fitWidth,
-                  alignment: Alignment.topCenter,
-                ),
-                const Positioned(
-                  left: 100,
-                  top: 70,
-                  child: MagicNeonBox(
-                    child: NeonMessageText(
-                      text: '아직 기록이 없네.\n한 장만 남겨볼까?',
-                    ),
-                  ),
-                ),
-              ],
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: Image(
+                image: bgProvider,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+              ),
             ),
           ),
 
           // =====================================================
-          // BOTTOM
+          // ✅ 2) 프레임(flower_frame.webp) - 상단에 오버레이
+          //   - SafeArea + 위 여백 추가로 "좀 내려오기"
           // =====================================================
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: Image(
-                      image: bottomProvider,
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
-                    ),
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.only(top: frameTopPad),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: RepaintBoundary(
+                  child: Image(
+                    image: frameProvider,
+                    fit: BoxFit.fitWidth,
+                    alignment: Alignment.topCenter,
+                    width: double.infinity,
                   ),
                 ),
+              ),
+            ),
+          ),
 
-                // ✅ 상단 그라데이션 마스크(원본 유지)
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: IgnorePointer(
-                    child: RepaintBoundary(
-                      child: Container(
-                        height: 100,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              _a(backgroundColor, 0.80),
-                              _a(backgroundColor, 0.00),
-                            ],
+
+          // =====================================================
+          // ✅ 3) 실제 UI (프레임 안쪽에 배치)
+          // =====================================================
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, c) {
+                // 화면/프레임 안쪽에 들어갈 콘텐츠 폭
+                final panelW = (c.maxWidth - 44).clamp(0.0, 360.0);
+
+                // 프레임이 상단에 있고, 그 안쪽에 패널들을 배치하기 위해
+                // 상단 여백을 "약간 넉넉히" 줌 (필요하면 숫자 조절)
+                final topInset = (mq.size.height * 0.22).clamp(140.0, 220.0);
+
+                return SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(22, topInset, 22, 22),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          // ✅ 로그인 상태 패널 (기존 유지)
+                          RepaintBoundary(child: _AuthStatusPanel(width: panelW)),
+                          const SizedBox(height: 14),
+
+                          // ✅ (선택) 짧은 한 줄 메시지 - 프레임 컨셉이면 이 정도는 OK
+                          // 필요 없으면 이 블록 통째로 지워도 됨
+                          RepaintBoundary(
+                            child: _MiniDashBar(width: panelW),
                           ),
-                        ),
+                          const SizedBox(height: 14),
+
+                          // ✅ 메뉴 패널(기존 2개 유지)
+                          RepaintBoundary(
+                            child: _HomeBigPanel(
+                              width: panelW,
+                              title: '타로일기',
+                              subtitle: '내일의 흐름을 뽑고 기록해요',
+                              leftAction: _HomeActionCardData(
+                                icon: Icons.edit_note_rounded,
+                                label: '내일의\n타로일기 쓰기',
+                                onTap: () {
+                                  _openWithLogin(
+                                    context,
+                                    const WriteDiaryPage(),
+                                    reason:
+                                    '일기를 저장/불러오려면 구글 로그인이 필요해.\n(기기 변경/재설치 대비)',
+                                  );
+                                },
+                              ),
+                              rightAction: _HomeActionCardData(
+                                icon: Icons.calendar_month_rounded,
+                                label: '내 타로일기\n보관함',
+                                onTap: () {
+                                  _openWithLogin(
+                                    context,
+                                    const CalanderDiaryPage(),
+                                    reason:
+                                    '보관함에서 일기 기록을 관리하려면 구글 로그인이 필요해.',
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          RepaintBoundary(
+                            child: _HomeBigPanel(
+                              width: panelW,
+                              title: '아르카나 도감',
+                              subtitle: '78장 의미를 차곡차곡 모아봐요',
+                              leftAction: _HomeActionCardData(
+                                icon: Icons.bookmark_add_rounded,
+                                label: '78장 아르카나\n기록하기',
+                                onTap: () {
+                                  _openWithLogin(
+                                    context,
+                                    const WriteArcanaPage(),
+                                    reason: '도감 기록은 저장이 들어가서 구글 로그인이 필요해.',
+                                  );
+                                },
+                              ),
+                              rightAction: _HomeActionCardData(
+                                icon: Icons.style_rounded,
+                                label: '타로카드\n도감 보기',
+                                onTap: () {
+                                  _openWithLogin(
+                                    context,
+                                    const ListArcanaPage(),
+                                    reason: '도감 데이터를 불러오려면 구글 로그인이 필요해.',
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ✅ 하단 텍스트 메뉴 (설정/문의/튜토리얼)
+                          RepaintBoundary(
+                            child: _BottomLinks(width: panelW),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
-
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final h = c.maxHeight;
-
-                    const double ratio = 0.42;
-                    const double lift = 82.0;
-                    final topY = (h * ratio - lift).clamp(0.0, h);
-
-                    final panelW = (c.maxWidth - 44).clamp(0.0, 360.0);
-
-                    final authTopY = (topY - 92).clamp(0.0, h);
-
-                    return Stack(
-                      children: [
-                        // ✅ 로그인 상태 패널
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          top: authTopY,
-                          child: Align(
-                            alignment: Alignment.topCenter,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 22),
-                              child: RepaintBoundary(
-                                child: _AuthStatusPanel(width: panelW),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // ✅ 메뉴 패널
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          top: topY,
-                          child: Align(
-                            alignment: Alignment.topCenter,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 22),
-                              child: RepaintBoundary(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _HomeBigPanel(
-                                      width: panelW,
-                                      title: '묘한 미래일기',
-                                      subtitle: '내일은 어떤 하루가 될지 카드를 뽑고 기록해봐요',
-                                      leftAction: _HomeActionCardData(
-                                        icon: Icons.edit_note_rounded,
-                                        label: '내일의\n타로일기 쓰기',
-                                        onTap: () {
-                                          _openWithLogin(
-                                            context,
-                                            const WriteDiaryPage(),
-                                            reason:
-                                            '일기를 저장/불러오려면 구글 로그인이 필요해.\n(기기 변경/재설치 대비)',
-                                          );
-                                        },
-                                      ),
-                                      rightAction: _HomeActionCardData(
-                                        icon: Icons.calendar_month_rounded,
-                                        label: '내 타로일기\n보관함',
-                                        onTap: () {
-                                          _openWithLogin(
-                                            context,
-                                            const CalanderDiaryPage(),
-                                            reason: '보관함에서 일기 기록을 관리하려면 구글 로그인이 필요해.',
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    _HomeBigPanel(
-                                      width: panelW,
-                                      title: '비밀의 타로도감',
-                                      subtitle: '78장 아르카나의 의미를 차곡차곡 모아봐요',
-                                      leftAction: _HomeActionCardData(
-                                        icon: Icons.bookmark_add_rounded,
-                                        label: '78장 아르카나\n기록하기',
-                                        onTap: () {
-                                          _openWithLogin(
-                                            context,
-                                            const WriteArcanaPage(),
-                                            reason: '도감 기록은 저장이 들어가서 구글 로그인이 필요해.',
-                                          );
-                                        },
-                                      ),
-                                      rightAction: _HomeActionCardData(
-                                        icon: Icons.style_rounded,
-                                        label: '타로카드\n도감 보기',
-                                        onTap: () {
-                                          _openWithLogin(
-                                            context,
-                                            const ListArcanaPage(),
-                                            reason: '도감 데이터를 불러오려면 구글 로그인이 필요해.',
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
+                );
+              },
             ),
           ),
         ],
@@ -277,7 +251,81 @@ class _MainHomePageState extends State<MainHomePage> {
 }
 
 /// ===============================
-/// ✅ 로그인 상태 패널
+/// ✅ (추가) 미니 대시보드 바 - 작게/심플하게
+/// - 원래 너가 원한 "대시보드 작게" 컨셉
+/// - 나중에 DB 연결해서 숫자만 바꿔 끼우면 됨
+/// ===============================
+class _MiniDashBar extends StatelessWidget {
+  final double width;
+  const _MiniDashBar({required this.width});
+
+  static const Color panelBg = Color(0xFF3B3562);
+  static const Color panelBg2 = Color(0xFF322D58);
+  static const Color line = Color(0xFFE6CF7A);
+  static const Color text = Color(0xFFF4F1FF);
+
+  @override
+  Widget build(BuildContext context) {
+    const r = 16.0;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(r),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+        child: Container(
+          width: width,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                _a(panelBg, 0.36),
+                _a(panelBg2, 0.30),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(r),
+            border: Border.all(color: _a(line, 0.22), width: 1),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '일기 0회',
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 12.8,
+                  fontWeight: FontWeight.w800,
+                  color: _a(text, 0.92),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '•',
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 12.8,
+                  fontWeight: FontWeight.w900,
+                  color: _a(text, 0.35),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '아르카나 0/78',
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 12.8,
+                  fontWeight: FontWeight.w800,
+                  color: _a(text, 0.92),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ===============================
+/// ✅ 로그인 상태 패널 (원본 유지)
 /// ===============================
 class _AuthStatusPanel extends StatelessWidget {
   final double width;
@@ -459,7 +507,7 @@ class _AuthMiniButton extends StatelessWidget {
 }
 
 // =========================================================
-// ✅ 큰 박스(섹션) + 내부 2컬럼 액션
+// ✅ 큰 박스(섹션) + 내부 2컬럼 액션 (원본 유지)
 // =========================================================
 
 class _HomeActionCardData {
@@ -676,46 +724,95 @@ class _HomeActionTile extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------
-// ✨ 별 장식 테두리 위젯 (MagicNeonBox) - 원본 유지
-// ---------------------------------------------------------
-class MagicNeonBox extends StatelessWidget {
-  final Widget child;
-  const MagicNeonBox({super.key, required this.child});
+/// ===============================
+/// ✅ 하단 링크(설정/문의/튜토리얼) - 지금은 동작만 비워둠
+/// ===============================
+class _BottomLinks extends StatelessWidget {
+  final double width;
+  const _BottomLinks({required this.width});
+
+  static const Color ink = Color(0xFFF4F1FF);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: _a(const Color(0xFFF3E5AB), 0.30),
-          width: 0.8,
-        ),
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: _a(const Color(0xFF7A5CFF), 0.05),
-            blurRadius: 10,
-            spreadRadius: 1,
+    return SizedBox(
+      width: width,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _LinkChip(
+            icon: Icons.settings_rounded,
+            label: '설정',
+            onTap: () {
+              // TODO: settings page
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('설정(준비중)')),
+              );
+            },
+          ),
+          _LinkChip(
+            icon: Icons.mail_outline_rounded,
+            label: '문의하기',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('문의하기(준비중)')),
+              );
+            },
+          ),
+          _LinkChip(
+            icon: Icons.auto_awesome_rounded,
+            label: '튜토리얼',
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('튜토리얼(준비중)')),
+              );
+            },
           ),
         ],
       ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          child,
-          const Positioned(
-            top: -16,
-            left: -10,
-            child: Icon(Icons.star, size: 10, color: Color(0xFFF3E5AB)),
-          ),
-          const Positioned(
-            bottom: -16,
-            right: -10,
-            child: Icon(Icons.star_outline, size: 10, color: Color(0xFFF3E5AB)),
-          ),
-        ],
+    );
+  }
+}
+
+class _LinkChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _LinkChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  static const Color chipBg = Color(0x332E294E);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _a(chipBg, 0.75),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _a(Colors.white, 0.12), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: _a(Colors.white, 0.88)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.gowunDodum(
+                fontSize: 12.2,
+                fontWeight: FontWeight.w800,
+                color: _a(Colors.white, 0.92),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -736,73 +833,4 @@ PageRouteBuilder _fadeRoute(Widget page) {
       );
     },
   );
-}
-
-class NeonMessageText extends StatefulWidget {
-  final String text;
-  const NeonMessageText({super.key, required this.text});
-
-  @override
-  State<NeonMessageText> createState() => _NeonMessageTextState();
-}
-
-class _NeonMessageTextState extends State<NeonMessageText>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 6000),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _animation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOutSine,
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        final double v = _animation.value;
-
-        final c1 = _a(const Color(0xFFF8F6FF), 0.85);
-        final c2 = const Color(0xFFF8F6FF);
-        final textColor = Color.lerp(c1, c2, v) ?? c2;
-
-        return Text(
-          widget.text,
-          style: GoogleFonts.jua(
-            fontSize: 15,
-            height: 1.4,
-            color: textColor,
-            shadows: [
-              Shadow(
-                color: _a(const Color(0xFFBFA8FF), 0.4 + (v * 0.4)),
-                blurRadius: 5 + (v * 5),
-                offset: const Offset(0, 0),
-              ),
-              Shadow(
-                color: _a(const Color(0xFF7A5CFF), 0.2 + (v * 0.5)),
-                blurRadius: 10 + (v * 15),
-                offset: const Offset(0, 0),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 }

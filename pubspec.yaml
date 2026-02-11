@@ -57,8 +57,8 @@ flutter:
 
   assets:
     # home
-    - asset/tarot_diary_maintop.webp
-    - asset/tarot_diary_mainbottom.webp
+    - asset/main_bg.webp
+    - asset/flower_frame.webp
 
     # cards
     - asset/cards/
