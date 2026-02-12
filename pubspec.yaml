@@ -58,7 +58,10 @@ flutter:
   assets:
     # home
     - asset/main_bg.webp
-    - asset/flower_frame.webp
+    - asset/icon_write_diary.png
+    - asset/icon_list_diary.png
+    - asset/icon_arcana.png
+    - asset/dalnyang_hermit.png
 
     # cards
     - asset/cards/

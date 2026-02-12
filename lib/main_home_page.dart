@@ -1,19 +1,38 @@
 // lib/main_home_page.dart
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../diary/write_diary.dart';
 import '../diary/calander_diary.dart';
-import '../arcana/write_arcana.dart';
-import '../arcana/list_arcana.dart';
 
-import 'package:firebase_auth/firebase_auth.dart';
+import '../backend/diary_repo.dart';
+import '../arcana/arcana_labels.dart';
+
 import '../login.dart';
-import '../backend/auth_service.dart';
 
 // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
+
+/// ======================================================
+/// ✅ Home (2단 레이아웃)
+/// - 상단: 1/3 (bg #f0e0fc) + 오늘 날짜 카드 1~3장 가로 나열 + 달냥이(랜턴)
+/// - 하단: 2/3 (bg #f7ebfc, 상단만 라운드) + 2열 타일 버튼들 + 하단 링크
+/// - 텍스트/아이콘 컬러 통일: #7a41c2
+/// ======================================================
+class _ThemeX {
+  // ✅ BG
+  static const Color topBg = Color(0xFFF0E0FC); // #f0e0fc
+  static const Color bottomBg = Color(0xFFF7EBFC); // #f7ebfc
+
+  // ✅ Text/Icon (통일)
+  static const Color ink = Color(0xFF7A41C2); // #7a41c2
+
+  // ✅ 버튼 타일 BG
+  static const Color btn1 = Color(0xFFE8E3FF);
+  static const Color btn2 = Color(0xFFFFE3E6);
+  static const Color btn3 = Color(0xFFFFF2D6);
+  static const Color btn4 = Color(0xFFE4D2F7); // 예비 버튼 bg
+}
 
 class MainHomePage extends StatefulWidget {
   const MainHomePage({super.key});
@@ -23,43 +42,6 @@ class MainHomePage extends StatefulWidget {
 }
 
 class _MainHomePageState extends State<MainHomePage> {
-  static const backgroundColor = Color(0xFF2E294E);
-
-  // ✅ 새 배경/프레임
-  static const String _bgPath = 'asset/main_bg.webp';
-  static const String _framePath = 'asset/flower_frame.webp';
-
-  @override
-  void initState() {
-    super.initState();
-
-    // ✅ 첫 프레임 이후에만 미리 디코딩/캐시
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      final mq = MediaQuery.of(context);
-      final dpr = mq.devicePixelRatio;
-      final wPx = (mq.size.width * dpr).round();
-      final hPx = (mq.size.height * dpr).round();
-
-      final bgProvider = ResizeImage(
-        const AssetImage(_bgPath),
-        width: wPx,
-        height: hPx,
-      );
-
-      // 프레임은 가로 기준으로만 캐시해도 충분
-      final frameProvider = ResizeImage(
-        const AssetImage(_framePath),
-        width: wPx,
-      );
-
-      precacheImage(bgProvider, context);
-      precacheImage(frameProvider, context);
-    });
-  }
-
-  /// ✅ B안: 홈은 구경 OK, 기능 진입(액션) 시 login.dart로 로그인 요구
   Future<void> _openWithLogin(
       BuildContext context,
       Widget page, {
@@ -68,747 +50,166 @@ class _MainHomePageState extends State<MainHomePage> {
     final ok = await requireGoogleLogin(
       context,
       title: '로그인이 필요해',
-      message: reason ??
-          '구글 로그인하면 기기 변경/재설치 후에도 데이터를 안전하게 사용할 수 있어.',
+      message: reason ?? '구글 로그인하면 기기 변경/재설치 후에도 데이터를 안전하게 사용할 수 있어.',
     );
     if (!ok) return;
-
     if (!context.mounted) return;
     Navigator.of(context).push(_fadeRoute(page));
   }
 
   @override
   Widget build(BuildContext context) {
-    final mq = MediaQuery.of(context);
-    final dpr = mq.devicePixelRatio;
-    final wPx = (mq.size.width * dpr).round();
-    final hPx = (mq.size.height * dpr).round();
-
-    final bgProvider = ResizeImage(
-      const AssetImage(_bgPath),
-      width: wPx,
-      height: hPx,
-    );
-
-    final frameProvider = ResizeImage(
-      const AssetImage(_framePath),
-      width: wPx,
-    );
-
-    final frameTopPad = (mq.size.height * 0.02).clamp(10.0, 24.0);
     return Scaffold(
-      backgroundColor: backgroundColor,
-      body: Stack(
-        children: [
-          // =====================================================
-          // ✅ 1) 배경(main_bg.webp) - 전체 cover
-          // =====================================================
-          Positioned.fill(
-            child: RepaintBoundary(
-              child: Image(
-                image: bgProvider,
-                fit: BoxFit.cover,
-                alignment: Alignment.center,
-              ),
-            ),
-          ),
-
-          // =====================================================
-          // ✅ 2) 프레임(flower_frame.webp) - 상단에 오버레이
-          //   - SafeArea + 위 여백 추가로 "좀 내려오기"
-          // =====================================================
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: EdgeInsets.only(top: frameTopPad),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: RepaintBoundary(
-                  child: Image(
-                    image: frameProvider,
-                    fit: BoxFit.fitWidth,
-                    alignment: Alignment.topCenter,
-                    width: double.infinity,
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-
-          // =====================================================
-          // ✅ 3) 실제 UI (프레임 안쪽에 배치)
-          // =====================================================
-          SafeArea(
-            child: LayoutBuilder(
-              builder: (context, c) {
-                // 화면/프레임 안쪽에 들어갈 콘텐츠 폭
-                final panelW = (c.maxWidth - 44).clamp(0.0, 360.0);
-
-                // 프레임이 상단에 있고, 그 안쪽에 패널들을 배치하기 위해
-                // 상단 여백을 "약간 넉넉히" 줌 (필요하면 숫자 조절)
-                final topInset = (mq.size.height * 0.22).clamp(140.0, 220.0);
-
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(22, topInset, 22, 22),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          // ✅ 로그인 상태 패널 (기존 유지)
-                          RepaintBoundary(child: _AuthStatusPanel(width: panelW)),
-                          const SizedBox(height: 14),
-
-                          // ✅ (선택) 짧은 한 줄 메시지 - 프레임 컨셉이면 이 정도는 OK
-                          // 필요 없으면 이 블록 통째로 지워도 됨
-                          RepaintBoundary(
-                            child: _MiniDashBar(width: panelW),
-                          ),
-                          const SizedBox(height: 14),
-
-                          // ✅ 메뉴 패널(기존 2개 유지)
-                          RepaintBoundary(
-                            child: _HomeBigPanel(
-                              width: panelW,
-                              title: '타로일기',
-                              subtitle: '내일의 흐름을 뽑고 기록해요',
-                              leftAction: _HomeActionCardData(
-                                icon: Icons.edit_note_rounded,
-                                label: '내일의\n타로일기 쓰기',
-                                onTap: () {
-                                  _openWithLogin(
-                                    context,
-                                    const WriteDiaryPage(),
-                                    reason:
-                                    '일기를 저장/불러오려면 구글 로그인이 필요해.\n(기기 변경/재설치 대비)',
-                                  );
-                                },
-                              ),
-                              rightAction: _HomeActionCardData(
-                                icon: Icons.calendar_month_rounded,
-                                label: '내 타로일기\n보관함',
-                                onTap: () {
-                                  _openWithLogin(
-                                    context,
-                                    const CalanderDiaryPage(),
-                                    reason:
-                                    '보관함에서 일기 기록을 관리하려면 구글 로그인이 필요해.',
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          RepaintBoundary(
-                            child: _HomeBigPanel(
-                              width: panelW,
-                              title: '아르카나 도감',
-                              subtitle: '78장 의미를 차곡차곡 모아봐요',
-                              leftAction: _HomeActionCardData(
-                                icon: Icons.bookmark_add_rounded,
-                                label: '78장 아르카나\n기록하기',
-                                onTap: () {
-                                  _openWithLogin(
-                                    context,
-                                    const WriteArcanaPage(),
-                                    reason: '도감 기록은 저장이 들어가서 구글 로그인이 필요해.',
-                                  );
-                                },
-                              ),
-                              rightAction: _HomeActionCardData(
-                                icon: Icons.style_rounded,
-                                label: '타로카드\n도감 보기',
-                                onTap: () {
-                                  _openWithLogin(
-                                    context,
-                                    const ListArcanaPage(),
-                                    reason: '도감 데이터를 불러오려면 구글 로그인이 필요해.',
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // ✅ 하단 텍스트 메뉴 (설정/문의/튜토리얼)
-                          RepaintBoundary(
-                            child: _BottomLinks(width: panelW),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// ===============================
-/// ✅ (추가) 미니 대시보드 바 - 작게/심플하게
-/// - 원래 너가 원한 "대시보드 작게" 컨셉
-/// - 나중에 DB 연결해서 숫자만 바꿔 끼우면 됨
-/// ===============================
-class _MiniDashBar extends StatelessWidget {
-  final double width;
-  const _MiniDashBar({required this.width});
-
-  static const Color panelBg = Color(0xFF3B3562);
-  static const Color panelBg2 = Color(0xFF322D58);
-  static const Color line = Color(0xFFE6CF7A);
-  static const Color text = Color(0xFFF4F1FF);
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 16.0;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(r),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: width,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                _a(panelBg, 0.36),
-                _a(panelBg2, 0.30),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(r),
-            border: Border.all(color: _a(line, 0.22), width: 1),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '일기 0회',
-                style: GoogleFonts.gowunDodum(
-                  fontSize: 12.8,
-                  fontWeight: FontWeight.w800,
-                  color: _a(text, 0.92),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '•',
-                style: GoogleFonts.gowunDodum(
-                  fontSize: 12.8,
-                  fontWeight: FontWeight.w900,
-                  color: _a(text, 0.35),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '아르카나 0/78',
-                style: GoogleFonts.gowunDodum(
-                  fontSize: 12.8,
-                  fontWeight: FontWeight.w800,
-                  color: _a(text, 0.92),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// ===============================
-/// ✅ 로그인 상태 패널 (원본 유지)
-/// ===============================
-class _AuthStatusPanel extends StatelessWidget {
-  final double width;
-  const _AuthStatusPanel({required this.width});
-
-  static const Color panelBg = Color(0xFF3B3562);
-  static const Color panelBg2 = Color(0xFF322D58);
-
-  static const Color goldLine = Color(0xFFE6CF7A);
-  static const Color titleGold = Color(0xFFE6CF7A);
-  static const Color subText = Color(0xFFC9C2D9);
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 18.0;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(r),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: width,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                _a(panelBg, 0.42),
-                _a(panelBg2, 0.36),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(r),
-            border: Border.all(color: _a(goldLine, 0.40), width: 1.1),
-          ),
-          child: StreamBuilder<User?>(
-            stream: AuthService.authStateChanges(),
-            builder: (context, snap) {
-              final u = snap.data;
-              final signedIn = (u != null && !u.isAnonymous);
-
-              final statusTitle = signedIn ? '구글 계정 연결됨 ✅' : '구글 계정 연결 안됨 ❌';
-              final sub = signedIn
-                  ? 'EMAIL: ${u.email ?? '-'}'
-                  : '지금 로그인하면 기기 변경/재설치에도 기록을 안전하게 쓸 수 있어.';
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    statusTitle,
-                    style: GoogleFonts.gowunDodum(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w900,
-                      color: titleGold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    sub,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.gowunDodum(
-                      fontSize: 12.2,
-                      fontWeight: FontWeight.w700,
-                      color: _a(subText, 0.92),
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _AuthMiniButton(
-                          label: '구글 로그인',
-                          enabled: !signedIn,
-                          onTap: () async {
-                            try {
-                              await AuthService.ensureSignedIn(
-                                forceAccountChooser: true,
-                                hardDisconnect: false,
-                              );
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('구글 로그인 완료')),
-                              );
-                            } catch (e) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('로그인 실패: $e')),
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _AuthMiniButton(
-                          label: '로그아웃',
-                          enabled: signedIn,
-                          onTap: () async {
-                            await AuthService.signOut(hardDisconnect: false);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('로그아웃 완료')),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AuthMiniButton extends StatelessWidget {
-  final String label;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _AuthMiniButton({
-    required this.label,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  static const Color tileBg = Color(0xFFD6D2E6);
-  static const Color tileBg2 = Color(0xFFCFCADD);
-  static const Color ink = Color(0xFF2E294E);
-  static const Color goldLine = Color(0xFFE6CF7A);
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 14.0;
-
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.45,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(r),
-          child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  _a(tileBg, 0.78),
-                  _a(tileBg2, 0.70),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(r),
-              border: Border.all(color: _a(goldLine, 0.22), width: 1),
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: GoogleFonts.gowunDodum(
-                  fontSize: 12.6,
-                  fontWeight: FontWeight.w900,
-                  color: _a(ink, 0.95),
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// =========================================================
-// ✅ 큰 박스(섹션) + 내부 2컬럼 액션 (원본 유지)
-// =========================================================
-
-class _HomeActionCardData {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  _HomeActionCardData({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-}
-
-class _HomeBigPanel extends StatelessWidget {
-  final double width;
-  final String title;
-  final String subtitle;
-  final _HomeActionCardData leftAction;
-  final _HomeActionCardData rightAction;
-
-  const _HomeBigPanel({
-    required this.width,
-    required this.title,
-    required this.subtitle,
-    required this.leftAction,
-    required this.rightAction,
-  });
-
-  static const Color panelBg = Color(0xFF3B3562);
-  static const Color panelBg2 = Color(0xFF322D58);
-
-  static const Color goldLine = Color(0xFFE6CF7A);
-  static const Color goldGlow = Color(0xFFFFE6A3);
-
-  static const Color titleGold = Color(0xFFE6CF7A);
-  static const Color subText = Color(0xFFC9C2D9);
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 22.0;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(r),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: width,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                _a(panelBg, 0.48),
-                _a(panelBg2, 0.40),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(r),
-            border: Border.all(color: _a(goldLine, 0.58), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: _a(Colors.black, 0.18),
-                blurRadius: 16,
-                offset: const Offset(0, 10),
-              ),
-              BoxShadow(
-                color: _a(goldGlow, 0.10),
-                blurRadius: 18,
-                offset: const Offset(0, 0),
-              ),
-            ],
-          ),
-          child: Stack(
-            children: [
-              Align(
-                alignment: Alignment.topCenter,
-                child: Container(
-                  height: 1.0,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        _a(Colors.white, 0.18),
-                        _a(Colors.white, 0.00),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.gowunDodum(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                        color: titleGold,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.gowunDodum(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: _a(subText, 0.92),
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(height: 1, color: _a(Colors.white, 0.06)),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: _HomeActionTile(data: leftAction)),
-                        const SizedBox(width: 12),
-                        Expanded(child: _HomeActionTile(data: rightAction)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeActionTile extends StatelessWidget {
-  final _HomeActionCardData data;
-  const _HomeActionTile({required this.data});
-
-  static const Color tileBg = Color(0xFFD6D2E6);
-  static const Color tileBg2 = Color(0xFFCFCADD);
-  static const Color ink = Color(0xFF2E294E);
-  static const Color goldLine = Color(0xFFE6CF7A);
-
-  @override
-  Widget build(BuildContext context) {
-    const r = 16.0;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: data.onTap,
-        borderRadius: BorderRadius.circular(r),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(r),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-            child: Ink(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    _a(tileBg, 0.82),
-                    _a(tileBg2, 0.74),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(r),
-                border: Border.all(color: _a(goldLine, 0.28), width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: _a(Colors.black, 0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Icon(data.icon, size: 18, color: _a(ink, 0.90)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      data.label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.gowunDodum(
-                        fontSize: 13.4,
-                        fontWeight: FontWeight.w900,
-                        color: ink,
-                        height: 1.15,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: _a(ink, 0.55),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// ===============================
-/// ✅ 하단 링크(설정/문의/튜토리얼) - 지금은 동작만 비워둠
-/// ===============================
-class _BottomLinks extends StatelessWidget {
-  final double width;
-  const _BottomLinks({required this.width});
-
-  static const Color ink = Color(0xFFF4F1FF);
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _LinkChip(
-            icon: Icons.settings_rounded,
-            label: '설정',
-            onTap: () {
-              // TODO: settings page
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('설정(준비중)')),
-              );
-            },
-          ),
-          _LinkChip(
-            icon: Icons.mail_outline_rounded,
-            label: '문의하기',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('문의하기(준비중)')),
-              );
-            },
-          ),
-          _LinkChip(
-            icon: Icons.auto_awesome_rounded,
-            label: '튜토리얼',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('튜토리얼(준비중)')),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LinkChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _LinkChip({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  static const Color chipBg = Color(0x332E294E);
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: _a(chipBg, 0.75),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _a(Colors.white, 0.12), width: 1),
-        ),
-        child: Row(
+      // ✅ 라운드가 보이려면 틈(top:12) 뒤 배경이 topBg여야 함
+      backgroundColor: _ThemeX.topBg,
+      body: SafeArea(
+        child: Column(
           children: [
-            Icon(icon, size: 16, color: _a(Colors.white, 0.88)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: GoogleFonts.gowunDodum(
-                fontSize: 12.2,
-                fontWeight: FontWeight.w800,
-                color: _a(Colors.white, 0.92),
+            // =========================
+            // ✅ TOP (1/3)
+            // - 카드(왼쪽) + 달냥이(오른쪽) + 랜턴 빛
+            // =========================
+            Expanded(
+              flex: 1,
+              child: Container(
+                width: double.infinity,
+                color: _ThemeX.topBg,
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                child: const _TopShowcase(),
+              ),
+            ),
+
+            // =========================
+            // ✅ BOTTOM (2/3) - 상단만 라운드
+            // =========================
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 12), // ✅ 라운드 공간
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(34),
+                    topRight: Radius.circular(34),
+                  ),
+                  child: Container(
+                    width: double.infinity,
+                    color: _ThemeX.bottomBg,
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final contentW = (c.maxWidth - 32).clamp(0.0, 520.0);
+
+                        return Center(
+                          child: SizedBox(
+                            width: contentW,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+                              child: Column(
+                                children: [
+                                  // ✅ 2개씩(2열) 타일
+                                  Expanded(
+                                    child: GridView.count(
+                                      crossAxisCount: 2,
+                                      crossAxisSpacing: 12,
+                                      mainAxisSpacing: 12,
+                                      childAspectRatio: 1.55,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      padding: EdgeInsets.zero,
+                                      children: [
+                                        _HomeTile2Col(
+                                          bg: _ThemeX.btn1,
+                                          icon: Icons.edit_rounded,
+                                          title: '내일의 타로일기',
+                                          subtitle: '내일의 흐름 기록',
+                                          onTap: () {
+                                            _openWithLogin(context, const WriteDiaryPage());
+                                          },
+                                        ),
+                                        _HomeTile2Col(
+                                          bg: _ThemeX.btn2,
+                                          icon: Icons.calendar_month_rounded,
+                                          title: '일기 보관함',
+                                          subtitle: '달력으로 보기',
+                                          onTap: () {
+                                            _openWithLogin(context, const CalanderDiaryPage());
+                                          },
+                                        ),
+                                        _HomeTile2Col(
+                                          bg: _ThemeX.btn3,
+                                          icon: Icons.auto_awesome_rounded,
+                                          title: '아르카나',
+                                          subtitle: '78장 카드 보기',
+                                          onTap: () {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('아르카나 도감(준비중)')),
+                                            );
+                                          },
+                                        ),
+                                        _HomeTile2Col(
+                                          bg: _ThemeX.btn4, // ✅ 예비색 #e4d2f7
+                                          icon: Icons.settings_rounded,
+                                          title: '예비',
+                                          subtitle: '추가 메뉴',
+                                          onTap: () {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('준비중')),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  // 하단 링크
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      TextButton(
+                                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('설정(준비중)')),
+                                        ),
+                                        child: Text(
+                                          '설정',
+                                          style: GoogleFonts.gowunDodum(
+                                            fontSize: 12.6,
+                                            fontWeight: FontWeight.w900,
+                                            color: _ThemeX.ink,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        '·',
+                                        style: GoogleFonts.gowunDodum(
+                                          fontSize: 12.6,
+                                          fontWeight: FontWeight.w900,
+                                          color: _a(_ThemeX.ink, 0.55),
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('문의하기(준비중)')),
+                                        ),
+                                        child: Text(
+                                          '문의하기',
+                                          style: GoogleFonts.gowunDodum(
+                                            fontSize: 12.6,
+                                            fontWeight: FontWeight.w900,
+                                            color: _ThemeX.ink,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -818,13 +219,317 @@ class _LinkChip extends StatelessWidget {
   }
 }
 
+/// ======================================================
+/// ✅ TOP Showcase
+/// - 카드 영역(왼쪽) + 달냥이(오른쪽)
+/// - 오른쪽에서 왼쪽으로 랜턴 빛 오버레이
+/// ======================================================
+class _TopShowcase extends StatelessWidget {
+  const _TopShowcase();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        // 오른쪽에 달냥이 자리 확보
+        final catW = (c.maxWidth * 0.30).clamp(110.0, 150.0);
+        final gap = 8.0;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // ✅ 카드 영역(왼쪽)
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.only(right: catW + gap),
+                child: const Align(
+                  alignment: Alignment.topCenter,
+                  child: _TodayCardsPlainRow(),
+                ),
+              ),
+            ),
+
+            // ✅ 랜턴 빛(오른쪽 -> 왼쪽) : 존재감 올림
+            Positioned(
+              right: 0,
+              top: 6,
+              bottom: 6,
+              width: catW + 120, // 카드 쪽으로 빛이 퍼지게
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerRight,
+                      end: Alignment.centerLeft,
+                      colors: [
+                        _a(Colors.white, 0.30),
+                        _a(Colors.white, 0.16),
+                        _a(Colors.white, 0.00),
+                      ],
+                      stops: const [0.0, 0.35, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // ✅ 달냥이(오른쪽) - 안 잘리게 + 살짝 띄워 배치
+            Positioned(
+              right: 6,
+              bottom: 8,
+              width: catW,
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Image.asset(
+                  'asset/dalnyang_hermit.png',
+                  width: catW, // 전체 폭 맞춤
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  isAntiAlias: true,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// ======================================================
+/// ✅ TOP: 오늘 날짜 카드 1~3장 가로 일렬
+/// - 카드에 입체감(그림자) + 랜턴 하이라이트(오른쪽)
+/// ======================================================
+class _TodayCardsPlainRow extends StatelessWidget {
+  const _TodayCardsPlainRow();
+
+  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  Future<List<int>> _loadTodayCards() async {
+    final today = _dateOnly(DateTime.now());
+    final doc = await DiaryRepo.I.read(date: today);
+    if (doc == null) return const [];
+
+    final raw = doc['cards'];
+    if (raw is! List) return const [];
+
+    final out = <int>[];
+    for (final v in raw) {
+      if (v is int) out.add(v);
+      else if (v is num) out.add(v.toInt());
+      else if (v is String) {
+        final n = int.tryParse(v);
+        if (n != null) out.add(n);
+      }
+    }
+
+    final max = ArcanaLabels.kTarotFileNames.length;
+    return out.where((e) => e >= 0 && e < max).take(3).toList();
+  }
+
+  String _path(int id) => 'asset/cards/${ArcanaLabels.kTarotFileNames[id]}';
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<int>>(
+      future: _loadTodayCards(),
+      builder: (context, snap) {
+        final ids = snap.data ?? const <int>[];
+
+        if (snap.connectionState != ConnectionState.done || ids.isEmpty) {
+          return Center(
+            child: Text(
+              '오늘 기록이 없어요.\n일기를 쓰면 카드가 여기 보여요.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.gowunDodum(
+                fontSize: 12.6,
+                fontWeight: FontWeight.w800,
+                color: _a(_ThemeX.ink, 0.85),
+                height: 1.25,
+              ),
+            ),
+          );
+        }
+
+        return Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(ids.length, (i) {
+                final path = _path(ids[i]);
+                return Padding(
+                  padding: EdgeInsets.only(left: i == 0 ? 0 : 12),
+                  child: _CardWithLanternHighlight(path: path),
+                );
+              }),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CardWithLanternHighlight extends StatelessWidget {
+  final String path;
+  const _CardWithLanternHighlight({required this.path});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 92,
+      height: 136,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: _a(Colors.black, 0.14),
+            blurRadius: 14,
+            spreadRadius: -6,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.asset(
+                path,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                isAntiAlias: true,
+              ),
+            ),
+
+            // ✅ 랜턴 하이라이트: 오른쪽 가장자리만 살짝 밝게
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerRight,
+                      end: Alignment.centerLeft,
+                      colors: [
+                        _a(Colors.white, 0.24),
+                        _a(Colors.white, 0.08),
+                        _a(Colors.white, 0.00),
+                      ],
+                      stops: const [0.0, 0.45, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // ✅ 아주 약한 비네팅(입체감)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        _a(Colors.black, 0.00),
+                        _a(Colors.black, 0.10),
+                      ],
+                      stops: const [0.55, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ======================================================
+/// ✅ 하단 2열 타일 버튼
+/// - 좌상단: 아이콘(보라색, 크게)
+/// - 좌하단: 제목(굵고 크게) + 설명
+/// ======================================================
+class _HomeTile2Col extends StatelessWidget {
+  final Color bg;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _HomeTile2Col({
+    required this.bg,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ✅ 좌상단 아이콘 (더 크게)
+              Icon(
+                icon,
+                size: 34,
+                color: _ThemeX.ink,
+              ),
+              const Spacer(),
+
+              // ✅ 좌하단 텍스트
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 17.5,
+                  fontWeight: FontWeight.w900,
+                  color: _ThemeX.ink,
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.gowunDodum(
+                  fontSize: 12.2,
+                  fontWeight: FontWeight.w700,
+                  color: _a(_ThemeX.ink, 0.70),
+                  height: 1.0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------
-// ✅ 페이드 라우트 (유지)
+// ✅ 페이드 라우트
 // ---------------------------------------------------------
 PageRouteBuilder _fadeRoute(Widget page) {
   return PageRouteBuilder(
-    transitionDuration: const Duration(milliseconds: 300),
-    reverseTransitionDuration: const Duration(milliseconds: 250),
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (context, animation, secondaryAnimation) => page,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       return FadeTransition(
