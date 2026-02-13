@@ -28,7 +28,7 @@ class TarotDiaryApp extends StatelessWidget {
       ],
       initialRoute: '/',
       routes: {
-        '/': (_) => const BootPage(), // ✅ 여기서 준비 끝나면 MainHomePage로 교체
+        '/': (_) => const BootPage(), // ✅ 준비 끝나면 BootPage에서 /home 이동
         '/home': (_) => const MainHomePage(),
         '/list_arcana': (_) => const ListArcanaPage(),
         '/write_arcana': (_) => const WriteArcanaPage(),

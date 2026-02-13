@@ -57,11 +57,13 @@ flutter:
 
   assets:
     # home
-    - asset/main_bg.webp
+    - asset/main_top.webp
+    - asset/main_bottom.webp
+
+    #icon
     - asset/icon_write_diary.png
     - asset/icon_list_diary.png
     - asset/icon_arcana.png
-    - asset/dalnyang_hermit.png
 
     # cards
     - asset/cards/
