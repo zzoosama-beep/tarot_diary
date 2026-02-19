@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../diary/write_diary.dart';
+import '../diary/write_diary_one.dart';
 import '../diary/calander_diary.dart';
 
 import '../backend/diary_repo.dart';
 import '../arcana/arcana_labels.dart';
+import '../theme/app_theme.dart'; // ✅ 헤더 잉크색(AppTheme.homeInkWarm) 사용
 
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
@@ -20,7 +22,8 @@ class MainHomePage extends StatefulWidget {
   State<MainHomePage> createState() => _MainHomePageState();
 }
 
-class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderStateMixin {
+class _MainHomePageState extends State<MainHomePage>
+    with SingleTickerProviderStateMixin {
   // assets
   static const String _bgBottom = 'asset/main_bottom.webp';
   static const String _topHero = 'asset/main_top.webp';
@@ -106,12 +109,66 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
     }
   }
 
+  // ✅ 튜토리얼 / 문의 아이콘 액션 (일단은 다이얼로그로 자리만 잡음)
+  void _openTutorial() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: _a(AppTheme.panelFill, 0.96),
+        title: Text(
+          '튜토리얼',
+          style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.95)),
+        ),
+        content: Text(
+          '여기에 튜토리얼 내용을 붙일 거야 ✨',
+          style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.82)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              '닫기',
+              style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.92)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _contactEmail() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: _a(AppTheme.panelFill, 0.96),
+        title: Text(
+          '문의하기',
+          style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.95)),
+        ),
+        content: Text(
+          '문의 메일 연결은 다음 단계에서 붙이자.\n(예: url_launcher로 mailto:)',
+          style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.82)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              '확인',
+              style: TextStyle(color: _a(AppTheme.homeInkWarm, 0.92)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final topH = size.height * _topRatio;
 
-    final sparkleAnim = _sparkleCtrl ?? const AlwaysStoppedAnimation<double>(0.0);
+    final sparkleAnim =
+        _sparkleCtrl ?? const AlwaysStoppedAnimation<double>(0.0);
 
     return Scaffold(
       body: Stack(
@@ -135,6 +192,34 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
             ),
           ),
 
+          // ✅ TOP 아이콘 (달냥이 머리 위 / 우측 상단)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                // ✅ 위치 미세조정 포인트: top 패딩 값(현재 10)
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    _TopIconButton(
+                      icon: Icons.help_outline_rounded,
+                      onTap: _openTutorial,
+                    ),
+                    const SizedBox(width: 10),
+                    _TopIconButton(
+                      icon: Icons.mail_outline_rounded,
+                      onTap: _contactEmail,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
           // ✅ BOTTOM
           Positioned(
             top: topH,
@@ -148,12 +233,14 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
                   return SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      constraints:
+                      BoxConstraints(minHeight: constraints.maxHeight),
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(0, 0, 0, 14),
                         child: Container(
                           width: double.infinity,
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          constraints:
+                          BoxConstraints(minHeight: constraints.maxHeight),
                           padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
 
                           // ✅ 바닥 레이어
@@ -184,7 +271,9 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
                                   sparkleAnim: sparkleAnim,
                                   onTap: () {
                                     Navigator.of(context).push(
-                                      MaterialPageRoute(builder: (_) => const CalanderDiaryPage()),
+                                      MaterialPageRoute(
+                                        builder: (_) => const CalanderDiaryPage(),
+                                      ),
                                     );
                                   },
                                 ),
@@ -205,11 +294,13 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
                                       borderAlpha: _panelBorderAlpha,
                                       level: _MenuLevel.normal,
                                       // ✅ 아이콘별 개별 조절
-                                      iconBoxSize: 44,     // 펜/일기장은 체감이 커서 조금 작게
-                                      iconLeftPad: 6,      // 왼쪽 붙는 느낌 완화
+                                      iconBoxSize: 44, // 펜/일기장은 체감이 커서 조금 작게
+                                      iconLeftPad: 6, // 왼쪽 붙는 느낌 완화
                                       onTap: () async {
                                         await Navigator.of(context).push(
-                                          MaterialPageRoute(builder: (_) => const WriteDiaryPage()),
+                                          MaterialPageRoute(
+                                            builder: (_) => const WriteDiaryOnePage(),
+                                          ),
                                         );
                                         if (!mounted) return;
                                         _loadTodayDiaryCards();
@@ -224,11 +315,13 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
                                       borderAlpha: _panelBorderAlpha,
                                       level: _MenuLevel.normal,
                                       // ✅ 아이콘별 개별 조절
-                                      iconBoxSize: 40,     // 캘린더는 정사각이라 기본
+                                      iconBoxSize: 40, // 캘린더는 정사각이라 기본
                                       iconLeftPad: 6,
                                       onTap: () async {
                                         await Navigator.of(context).push(
-                                          MaterialPageRoute(builder: (_) => const CalanderDiaryPage()),
+                                          MaterialPageRoute(
+                                            builder: (_) => const CalanderDiaryPage(),
+                                          ),
                                         );
                                         if (!mounted) return;
                                         _loadTodayDiaryCards();
@@ -243,9 +336,10 @@ class _MainHomePageState extends State<MainHomePage> with SingleTickerProviderSt
                                       borderAlpha: _panelBorderAlpha,
                                       level: _MenuLevel.last,
                                       // ✅ 아이콘별 개별 조절
-                                      iconBoxSize: 40,     // 카드는 퍼져서 작아 보이니 살짝 키움
+                                      iconBoxSize: 40, // 카드는 퍼져서 작아 보이니 살짝 키움
                                       iconLeftPad: 6,
-                                      onTap: () => Navigator.of(context).pushNamed('/list_arcana'),
+                                      onTap: () => Navigator.of(context)
+                                          .pushNamed('/list_arcana'),
                                     ),
                                   ],
                                 ),
@@ -368,7 +462,6 @@ class _PredictionSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-
           GestureDetector(
             onTap: onTap,
             child: Row(
@@ -491,11 +584,9 @@ class _AnimatedCardTileState extends State<_AnimatedCardTile> {
                       );
                     },
                   ),
-
                   Positioned.fill(
                     child: Container(color: widget.cardTint.withOpacity(0.07)),
                   ),
-
                   Positioned.fill(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -510,7 +601,6 @@ class _AnimatedCardTileState extends State<_AnimatedCardTile> {
                       ),
                     ),
                   ),
-
                   Positioned.fill(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -526,7 +616,6 @@ class _AnimatedCardTileState extends State<_AnimatedCardTile> {
                       ),
                     ),
                   ),
-
                   if (widget.enableSparkle)
                     Positioned.fill(
                       child: IgnorePointer(
@@ -559,7 +648,6 @@ class _AnimatedCardTileState extends State<_AnimatedCardTile> {
                         ),
                       ),
                     ),
-
                   if (glowBoost > 0.0)
                     Positioned.fill(
                       child: IgnorePointer(
@@ -727,6 +815,61 @@ class _MainMenuIconItem extends StatelessWidget {
             ),
             Icon(Icons.chevron_right, color: _a(Colors.white, 0.55)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ✅ 홈 상단 아이콘 버튼 (헤더 잉크색 적용)
+class _TopIconButton extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _TopIconButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  State<_TopIconButton> createState() => _TopIconButtonState();
+}
+
+class _TopIconButtonState extends State<_TopIconButton> {
+  bool _down = false;
+
+  void _setDown(bool v) {
+    if (_down == v) return;
+    setState(() => _down = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = _a(AppTheme.homeInkWarm, 0.92);
+
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 110),
+      curve: Curves.easeOut,
+      scale: _down ? 0.92 : 1.0,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: widget.onTap,
+          onTapDown: (_) => _setDown(true),
+          onTapCancel: () => _setDown(false),
+          onTapUp: (_) => _setDown(false),
+          child: Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _a(Colors.white, 0.06),
+              border: Border.all(color: _a(Colors.white, 0.10), width: 1),
+            ),
+            child: Icon(widget.icon, size: 22, color: ink),
+          ),
         ),
       ),
     );

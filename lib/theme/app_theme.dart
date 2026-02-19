@@ -2,105 +2,125 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// 앱 전체에서 공통으로 쓰는 컬러/폰트/보더/버튼 스타일 모음
-/// - 캘린더/리스트/쓰기 페이지 모두 여기서 가져다 씀
-/// - "값"만 관리하고, UI 로직은 각 페이지에 둔다
 class AppTheme {
   AppTheme._();
 
   // =========================================================
-  // ======================= BASE COLOR ======================
+  // BASE
   // =========================================================
-  /// 앱 배경(전체)
   static const Color bgSolid = Color(0xFF2E255A);
-
-  /// 카드/패널 채움(내부 딥톤)
+  static const Color bgColor = Color(0xFF564389);
   static const Color panelFill = Color(0xFF332B57);
 
-  /// 테마 포인트(골드)
+  // =========================================================
+  // BRAND ACCENT
+  // =========================================================
+  static const Color accent = Color(0xFF8F79FF);
+  static const Color accentDeep = Color(0xFF6F5DE8);
   static const Color gold = Color(0xFFD4AF37);
 
   // =========================================================
-  // ======================= TEXT COLOR ======================
+  // TEXT
   // =========================================================
-  /// 기본 텍스트(크림/화이트 계열)
   static const Color tPrimary = Color(0xFFF3EDE0);
-
-  /// 보조 텍스트(웜톤 크림)
   static const Color tSecondary = Color(0xFFCBBFAE);
-
-  /// 약한 텍스트(뮤트)
   static const Color tMuted = Color(0xFF9C90A8);
 
-  /// 헤더 타이틀/아이콘 잉크
-  static const Color headerInk = Color(0xFFDAD6CC);
+  // 🔥 기본 헤더 잉크 (약간 쿨톤)
+  static const Color headerInk = Color(0xFFCEBDF8);
 
-  /// 요일(일/토) 포인트
+  // 🔥 홈 전용 따뜻한 잉크 (이번 디자인 핵심)
+  static const Color homeInkWarm = Color(0xFFE7DDFB);
+  static const Color homeInkWarmDim = Color(0xFFD6C9F5);
+
   static const Color sundayInk = Color(0xFFFF8A8A);
   static const Color saturdayInk = Color(0xFF8FB2FF);
 
   // =========================================================
-  // ====================== CALENDAR ONLY ====================
+  // CALENDAR ONLY (복구)
   // =========================================================
-  /// 기본 날짜 텍스트 (회보라)
   static const Color calInk = Color(0xFFB8B2C8);
-
-  /// 다른 달/비활성
   static const Color calMuted = Color(0xFF6E6786);
-
-  /// 캘린더 라인
   static const Color calLine = Color(0xFF4A4363);
-
-  /// 캘린더 일/토(톤다운)
   static const Color calSun = Color(0xFFC9A0A8);
   static const Color calSat = Color(0xFF9DB3D6);
 
   // =========================================================
-  // ===================== EFFECT / BORDER ===================
+  // EFFECT / BORDER
   // =========================================================
-  /// 클릭 스플래시/하이라이트
-  static Color get inkSplash => gold.withOpacity(0.14);
-  static Color get inkHighlight => gold.withOpacity(0.08);
+  static Color get inkSplash => accent.withOpacity(0.14);
+  static Color get inkHighlight => accent.withOpacity(0.08);
 
-  /// 유리 패널 보더
-  static Color get panelBorder => gold.withOpacity(0.22);
-  static Color get panelBorderSoft => gold.withOpacity(0.13);
+  static Color get panelBorder => headerInk.withOpacity(0.14);
+  static Color get panelBorderSoft => headerInk.withOpacity(0.10);
 
-  /// 기본 유리 배경(기본 카드용)
   static Color get glassBg => Colors.white.withOpacity(0.05);
-
-  /// 캘린더 카드 안쪽 깔림(레이어감)
   static Color get calendarBg => Colors.white.withOpacity(0.035);
-
-  /// 텍스트 박스(일기 내용 영역) 배경
   static Color get diaryFieldBg => Colors.white.withOpacity(0.06);
 
   // =========================================================
-  // ========================= RADIUS =========================
+  // HOME PANEL TONE
+  // =========================================================
+  static const Color homePanelA = Color(0xFF6E5AB5);
+  static const Color homePanelB = Color(0xFF4F3D86);
+  static const Color homeCream = Color(0xFFFFF2E6);
+
+  // =========================================================
+  // RADIUS
   // =========================================================
   static const double radius = 18.0;
   static const double innerRadius = 14.0;
 
   // =========================================================
-  // ========================== FONT ==========================
+  // HOME TYPO (따뜻하게)
   // =========================================================
-  /// 상단 타이틀
+  static TextStyle homeTodayLabel({double opacity = 0.80}) =>
+      GoogleFonts.notoSansKr(
+        fontSize: 12.0,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 2.2,
+        color: homeInkWarm.withOpacity(opacity),
+        height: 1.0,
+        shadows: [
+          Shadow(
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      );
+
+  static TextStyle get homeMenuLabel => GoogleFonts.gowunDodum(
+    fontSize: 14.5,
+    fontWeight: FontWeight.w800,
+    color: homeInkWarm.withOpacity(0.94),
+    height: 1.2,
+    shadows: [
+      Shadow(
+        color: Colors.black.withOpacity(0.14),
+        blurRadius: 8,
+        offset: const Offset(0, 2),
+      ),
+    ],
+  );
+
+  // =========================================================
+  // COMMON TYPO
+  // =========================================================
   static TextStyle get title => GoogleFonts.gowunDodum(
-    color: headerInk,
+    color: homeInkWarm,
     fontSize: 17,
     fontWeight: FontWeight.w900,
     height: 1.0,
   );
 
-  /// 월 이동 라벨(골드 톤)
   static TextStyle get month => GoogleFonts.gowunDodum(
-    color: gold.withOpacity(0.78),
+    color: accent.withOpacity(0.85),
     fontSize: 13.2,
     fontWeight: FontWeight.w800,
     height: 1.0,
   );
 
-  /// 일반 본문
   static TextStyle get body => GoogleFonts.gowunDodum(
     color: tPrimary.withOpacity(0.88),
     fontSize: 14,
@@ -108,7 +128,6 @@ class AppTheme {
     height: 1.55,
   );
 
-  /// 카드 접기/펼치기 같은 작은 UI 라벨
   static TextStyle get uiSmallLabel => GoogleFonts.gowunDodum(
     fontSize: 12.5,
     fontWeight: FontWeight.w800,
@@ -116,11 +135,12 @@ class AppTheme {
     height: 1.0,
   );
 
-  /// 탭(나의 예상 / 실제 하루)
   static TextStyle tabLabel({required bool selected, required bool enabled}) {
     return GoogleFonts.gowunDodum(
       color: enabled
-          ? (selected ? tPrimary.withOpacity(0.88) : tPrimary.withOpacity(0.60))
+          ? (selected
+          ? tPrimary.withOpacity(0.88)
+          : tPrimary.withOpacity(0.60))
           : tPrimary.withOpacity(0.42),
       fontSize: 12.6,
       fontWeight: FontWeight.w900,
@@ -129,7 +149,6 @@ class AppTheme {
     );
   }
 
-  /// 일기 본문(너가 선택한 크림톤)
   static TextStyle get diaryText => GoogleFonts.gowunDodum(
     color: const Color(0xFFF1E6C8).withOpacity(0.88),
     fontSize: 13.2,
@@ -137,7 +156,6 @@ class AppTheme {
     fontWeight: FontWeight.w600,
   );
 
-  /// 힌트 텍스트(내용 없음)
   static TextStyle get hint => GoogleFonts.gowunDodum(
     color: tMuted.withOpacity(0.90),
     fontSize: 12.4,
@@ -145,12 +163,12 @@ class AppTheme {
     height: 1.5,
   );
 
-  /// 일기 수정 아이콘 (연필)
   static const Color editBlue = Color(0xFF8FA2C8);
 }
 
-
-// ✅ 공용: 떠있는 유리 패널 데코 (보관함/캘린더 느낌)
+// =========================================================
+// GLASS PANEL DECORATION
+// =========================================================
 BoxDecoration glassPanelDecoration({
   double radius = AppTheme.radius,
   Color? fill,
@@ -159,8 +177,8 @@ BoxDecoration glassPanelDecoration({
 }) {
   Color a(Color c, double o) => c.withAlpha((o * 255).round());
 
-  final panelFill = fill ?? AppTheme.glassBg;          // 기존 패널 배경
-  final panelBorder = border ?? AppTheme.panelBorder; // 기존 패널 보더
+  final panelFill = fill ?? AppTheme.glassBg;
+  final panelBorder = border ?? AppTheme.panelBorder;
 
   return BoxDecoration(
     color: panelFill,
