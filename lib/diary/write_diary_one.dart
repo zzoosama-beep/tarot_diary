@@ -7,7 +7,7 @@ import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../arcana/arcana_labels.dart';
 
-// ✅ 추가: 다음 화면
+// ✅ 다음 화면
 import 'write_diary_two.dart';
 
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -123,10 +123,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     );
 
     if (ok != true) return;
-
-    setState(() {
-      _resetAll();
-    });
+    setState(_resetAll);
   }
 
   // -----------------------
@@ -153,7 +150,6 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
       final id = _rng.nextInt(total);
       if (_usedIds.add(id)) return id;
     }
-
     for (int id = 0; id < total; id++) {
       if (_usedIds.add(id)) return id;
     }
@@ -162,7 +158,6 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
 
   // -----------------------
   // ✅ 자동: 카드 탭하면 즉시 뽑고 즉시 뒤집힘 (중복 금지)
-  // - 한 번 뽑힌 슬롯은 고정
   // -----------------------
   void _onTapCard(int index) async {
     if (index >= _cardCount) return;
@@ -173,12 +168,10 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     final id = _drawUniqueId();
     if (id == null) return;
 
-    // 1️⃣ 먼저 카드만 세팅 (아직 flipped 아님)
     setState(() {
       _slotCardIds[index] = id;
     });
 
-    // 2️⃣ 한 프레임 뒤에 flipped true → flip 애니 발동
     await Future.delayed(const Duration(milliseconds: 40));
     if (!mounted) return;
 
@@ -225,17 +218,13 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     });
   }
 
-  // -----------------------
-  // ✅ 플러스 눌러서 다음 화면으로
-  // -----------------------
   void _goToWriteTwo() {
     if (!_isSelectionComplete) return;
 
-    final ids = _pickedIds;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WriteDiaryTwoPage(
-          pickedCardIds: ids,
+          pickedCardIds: _pickedIds,
           cardCount: _cardCount,
         ),
       ),
@@ -273,7 +262,6 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                     children: [
                       const SizedBox(height: 34),
 
-                      // ✅ 카드줄 + 우상단 다시뽑기
                       _BackCardRow(
                         count: _cardCount,
                         flipped: _flipped,
@@ -285,7 +273,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
 
                       const SizedBox(height: 26),
                       Text(
-                        '카드를 탭하면 자동으로 뽑혀서 바로 펼쳐져 ✨\n직접 뽑고 싶으면 아래 버튼을 눌러줘',
+                        '카드를 탭하면 자동으로 펼쳐져 ✨\n직접 뽑고 싶으면 아래 버튼을 눌러줘',
                         textAlign: TextAlign.center,
                         style: AppTheme.uiSmallLabel.copyWith(
                           fontSize: 12.2,
@@ -300,27 +288,29 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                         onChanged: _onChangeCount,
                       ),
                       const SizedBox(height: 18),
+
+                      // ✅ 메인 CTA(1개만): 직접 카드 뽑기
                       SizedBox(
                         width: rowMaxW,
                         child: _RitualCtaButton(
                           label: '직접 카드 뽑기',
                           onTap: _onManualPickCards,
+                          height: 46, // ✅ 낮춤
+                          compact: true,
                         ),
                       ),
 
-                      // ✅ 완료되면 플러스 버튼 등장
+                      // ✅ 보조 액션: 작은 + 칩 + 멘트 (CTA처럼 안 보이게)
                       const SizedBox(height: 14),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        child: _isSelectionComplete
-                            ? SizedBox(
-                          key: const ValueKey('plus'),
-                          width: rowMaxW,
-                          child: _PlusWriteButton(onTap: _goToWriteTwo),
-                        )
-                            : const SizedBox(key: ValueKey('empty'), height: 0),
+                      SizedBox(
+                        width: rowMaxW,
+                        child: Center(
+                          child: _PlusWriteInlineAction(
+                            enabled: _isSelectionComplete,
+                            onTap: _goToWriteTwo,
+                            label: '이 카드로 내일 일기 쓰기',
+                          ),
+                        ),
                       ),
 
                       const SizedBox(height: 22),
@@ -511,17 +501,24 @@ class _MiniResetButton extends StatelessWidget {
 }
 
 /// ===============================
-/// ✅ 플러스 버튼 (완료되면 등장)
+/// ✅ 보조 액션: 작은 + 칩 + 멘트
 /// ===============================
-class _PlusWriteButton extends StatefulWidget {
+class _PlusWriteInlineAction extends StatefulWidget {
+  final bool enabled;
   final VoidCallback onTap;
-  const _PlusWriteButton({required this.onTap});
+  final String label;
+
+  const _PlusWriteInlineAction({
+    required this.enabled,
+    required this.onTap,
+    required this.label,
+  });
 
   @override
-  State<_PlusWriteButton> createState() => _PlusWriteButtonState();
+  State<_PlusWriteInlineAction> createState() => _PlusWriteInlineActionState();
 }
 
-class _PlusWriteButtonState extends State<_PlusWriteButton> {
+class _PlusWriteInlineActionState extends State<_PlusWriteInlineAction> {
   bool _down = false;
 
   void _setDown(bool v) {
@@ -531,66 +528,67 @@ class _PlusWriteButtonState extends State<_PlusWriteButton> {
 
   @override
   Widget build(BuildContext context) {
-    final base = _a(const Color(0xFF1E1330), 0.88);
-    final border = _a(Colors.white, 0.22);
-    final glow = _a(AppTheme.headerInk, 0.20);
-    final icon = _a(const Color(0xFFFFF2E6), 0.96);
-    final text = _a(const Color(0xFFFFF2E6), 0.92);
+    final enabled = widget.enabled;
 
-    return SizedBox(
-      height: 54,
+    // ✅ +가 확실히 보이게 대비를 강하게
+    final chipBg = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(Colors.white, 0.34);
+    final chipBorder = enabled ? _a(AppTheme.headerInk, 0.24) : _a(AppTheme.panelBorder, 0.18);
+    final plus = enabled ? _a(AppTheme.headerInk, 0.95) : _a(AppTheme.headerInk, 0.40);
+
+    // ✅ 텍스트는 "버튼" 말고 "서브 액션" 톤
+    final text = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
+
+    return IgnorePointer(
+      ignoring: !enabled,
       child: AnimatedScale(
         duration: const Duration(milliseconds: 110),
         curve: Curves.easeOut,
         scale: _down ? 0.985 : 1.0,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: base,
-            border: Border.all(color: border, width: 1.0),
-            boxShadow: [
-              BoxShadow(
-                color: _a(Colors.black, 0.22),
-                blurRadius: 22,
-                offset: const Offset(0, 12),
-                spreadRadius: -2,
-              ),
-              BoxShadow(
-                color: glow,
-                blurRadius: 28,
-                spreadRadius: -10,
-                offset: const Offset(0, 16),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(18),
-                onTap: widget.onTap,
-                onTapDown: (_) => _setDown(true),
-                onTapCancel: () => _setDown(false),
-                onTapUp: (_) => _setDown(false),
-                child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add_circle_rounded, size: 20, color: icon),
-                      const SizedBox(width: 8),
-                      Text(
-                        '이 카드로 일기 쓰기',
-                        style: AppTheme.uiSmallLabel.copyWith(
-                          fontSize: 14.2,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.6,
-                          color: text,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(999),
+            onTapDown: (_) => _setDown(true),
+            onTapCancel: () => _setDown(false),
+            onTapUp: (_) => _setDown(false),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ✅ 너무 크지 않게 30px
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: chipBg,
+                      border: Border.all(color: chipBorder, width: 1),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _a(Colors.black, enabled ? 0.12 : 0.06),
+                          blurRadius: 12,
+                          offset: const Offset(0, 8),
+                          spreadRadius: -8,
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: Center(
+                      child: Icon(Icons.add_rounded, size: 20, color: plus),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Text(
+                    widget.label,
+                    style: AppTheme.uiSmallLabel.copyWith(
+                      fontSize: 13.4,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                      color: text,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -602,8 +600,6 @@ class _PlusWriteButtonState extends State<_PlusWriteButton> {
 
 /// ===============================
 /// ✅ Flip + Press 애니메이션
-/// + ✅ 살짝 "스윕/넘김" 느낌: flip 중간에 x축으로 살짝 이동
-/// - ❌ Pop 제거
 /// ===============================
 class _FlipCard extends StatefulWidget {
   final double width;
@@ -1048,15 +1044,19 @@ class _CountChips extends StatelessWidget {
 }
 
 /// ===============================
-/// CTA
+/// 메인 CTA: 직접 카드 뽑기
 /// ===============================
 class _RitualCtaButton extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
+  final double height;
+  final bool compact;
 
   const _RitualCtaButton({
     required this.label,
     required this.onTap,
+    this.height = 54,
+    this.compact = false,
   });
 
   @override
@@ -1080,38 +1080,43 @@ class _RitualCtaButtonState extends State<_RitualCtaButton> {
     final text = _a(const Color(0xFF3A2147), 0.92);
     final icon = _a(AppTheme.headerInk, 0.78);
 
+    final h = widget.height;
+    final iconSize = widget.compact ? 17.0 : 18.0;
+    final fontSize = widget.compact ? 13.8 : 14.4;
+    final radius = widget.compact ? 16.0 : 18.0;
+
     return SizedBox(
-      height: 54,
+      height: h,
       child: AnimatedScale(
         duration: const Duration(milliseconds: 110),
         curve: Curves.easeOut,
         scale: _down ? 0.985 : 1.0,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(radius),
             color: base,
             border: Border.all(color: border, width: 1.0),
             boxShadow: [
               BoxShadow(
-                color: _a(Colors.black, 0.20),
-                blurRadius: 22,
+                color: _a(Colors.black, 0.18),
+                blurRadius: 20,
                 offset: const Offset(0, 12),
                 spreadRadius: -2,
               ),
               BoxShadow(
                 color: glow,
-                blurRadius: 28,
+                blurRadius: 26,
                 spreadRadius: -10,
                 offset: const Offset(0, 16),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(radius),
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(radius),
                 onTap: widget.onTap,
                 onTapDown: (_) => _setDown(true),
                 onTapCancel: () => _setDown(false),
@@ -1120,14 +1125,14 @@ class _RitualCtaButtonState extends State<_RitualCtaButton> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.auto_awesome, size: 18, color: icon),
+                      Icon(Icons.auto_awesome, size: iconSize, color: icon),
                       const SizedBox(width: 8),
                       Text(
                         widget.label,
                         style: AppTheme.uiSmallLabel.copyWith(
-                          fontSize: 14.4,
+                          fontSize: fontSize,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: 0.7,
+                          letterSpacing: 0.6,
                           color: text,
                         ),
                       ),
