@@ -10,6 +10,8 @@ import '../arcana/arcana_labels.dart';
 import '../backend/diary_repo.dart';
 import '../error/app_error_dialog.dart';
 
+import '../diary/calander_diary.dart';
+
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
 class WriteDiaryTwoPage extends StatefulWidget {
@@ -17,11 +19,15 @@ class WriteDiaryTwoPage extends StatefulWidget {
   final int cardCount; // 1~3
   final DateTime? selectedDate;
 
+  /// ✅ 기존 기록 있으면 불러온 텍스트(수정 모드 프리필)
+  final String? initialBeforeText;
+
   const WriteDiaryTwoPage({
     super.key,
     required this.pickedCardIds,
     required this.cardCount,
     this.selectedDate,
+    this.initialBeforeText,
   });
 
   @override
@@ -36,7 +42,7 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
 
   DateTime get _saveDate {
     final d = widget.selectedDate;
-    if (d != null) return d;
+    if (d != null) return DateTime(d.year, d.month, d.day);
 
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
@@ -53,6 +59,18 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
   void _errorLong(String msg) {
     if (!mounted) return;
     showDalnyangErrorDialog(context, exceptionMessage: msg);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    // ✅ 기존 텍스트 프리필은 여기서!
+    final t = widget.initialBeforeText;
+    if (t != null && t.trim().isNotEmpty) {
+      _c.text = t;
+      _c.selection = TextSelection.collapsed(offset: _c.text.length);
+    }
   }
 
   @override
@@ -99,7 +117,15 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
       await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
 
-      Navigator.of(context).pop(true);
+      // ✅ 저장 후 캘린더로 이동 (작성화면은 스택에서 정리)
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => CalanderDiaryPage(
+            selectedDate: _saveDate,
+          ),
+        ),
+            (route) => route.isFirst,
+      );
     } on TimeoutException {
       if (!mounted) return;
       _toast('저장이 너무 오래 걸려서 중단했어. (기기 저장소 확인)');
@@ -115,6 +141,10 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
   Widget build(BuildContext context) {
     final contentW = LayoutTokens.contentW(context);
 
+    // ✅ 텍스트 박스 높이: 넉넉 + 과하지 않게 clamp
+    final vh = MediaQuery.of(context).size.height;
+    final inputH = (vh * 0.28).clamp(220.0, 320.0);
+
     return Scaffold(
       backgroundColor: AppTheme.bgColor,
       body: SafeArea(
@@ -122,12 +152,10 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
           children: [
             const SizedBox(height: 10),
             _HeaderBar(
-              title: '일기 쓰기',
+              title: '내일 타로일기 쓰기',
               onBack: () => Navigator.of(context).maybePop(),
             ),
-
-            // ✅ 카드가 센터로 내려오게
-            const SizedBox(height: 26),
+            const SizedBox(height: 14),
 
             Expanded(
               child: Align(
@@ -137,35 +165,28 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ✅ 카드 크기 키움 + 전단계 느낌 유지(부채꼴X, 정렬만 살짝 깨기)
-                      _PickedCardsStaggered(
+                      const Spacer(flex: 1),
+
+                      _PickedCardsRowLikeOne(
                         pickedIds: widget.pickedCardIds,
                         cardCount: widget.cardCount,
                       ),
 
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 26),
 
-                      Text(
-                        '카드 보면서 오늘의 느낌을 적어줘 ✨',
-                        textAlign: TextAlign.center,
-                        style: AppTheme.uiSmallLabel.copyWith(
-                          fontSize: 12.2,
-                          fontWeight: FontWeight.w900,
-                          color: _a(AppTheme.homeInkWarm, 0.70),
-                          height: 1.35,
+                      SizedBox(
+                        height: inputH,
+                        child: _DiaryInputTransparent(
+                          controller: _c,
+                          focusNode: _focus,
                         ),
                       ),
 
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 44),
 
-                      _DiaryInputTransparent(
-                        controller: _c,
-                        focusNode: _focus,
-                        maxHeight: 180,
-                        showLine: true,
-                      ),
+                      _ThinLine(focusNode: _focus),
 
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
 
                       _SaveButton(
                         enabled: !_saving,
@@ -173,7 +194,7 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
                         compact: true,
                       ),
 
-                      const SizedBox(height: 14),
+                      const Spacer(flex: 3),
                     ],
                   ),
                 ),
@@ -237,16 +258,13 @@ class _HeaderBar extends StatelessWidget {
 }
 
 /// ===============================
-/// ✅ 카드 배치 (부채꼴 X)
-/// - "가로 일렬" 유지
-/// - 각 카드: 아주 약한 rotation + y오프셋으로 정렬만 살짝 깨기
-/// - ✅ 카드 크기 업: maxCardW 86 -> 104 (체감 확 커짐)
+/// ✅ write_diary_one 카드 Row 느낌 그대로
 /// ===============================
-class _PickedCardsStaggered extends StatelessWidget {
+class _PickedCardsRowLikeOne extends StatelessWidget {
   final List<int> pickedIds;
   final int cardCount;
 
-  const _PickedCardsStaggered({
+  const _PickedCardsRowLikeOne({
     required this.pickedIds,
     required this.cardCount,
   });
@@ -254,37 +272,38 @@ class _PickedCardsStaggered extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final w = LayoutTokens.contentW(context);
+    const gap = 12.0;
     final c = cardCount.clamp(1, 3);
 
-    const gap = 10.0;
-
-    // ✅ 여기만 조절하면 됨: 카드 "기준 크기"
     const maxCardW = 104.0;
-
     final fitWFor3 = (w - (gap * 2)) / 3;
     final cardW = math.min(maxCardW, fitWFor3);
     final cardH = cardW * 1.55;
 
-    const rots = <double>[-0.03, 0.0, 0.03]; // rad (약하게)
-    const dy = <double>[6, 0, 6];
+    double yOffsetFor(int i) {
+      if (c == 1) return 0;
+      if (c == 2) return i == 0 ? 1 : -1;
+      if (i == 1) return -4;
+      return i == 0 ? 1 : 0;
+    }
 
-    return Center(
+    final rowWFor3 = (cardW * 3) + (gap * 2);
+
+    return SizedBox(
+      width: rowWFor3,
       child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(c, (i) {
           final id = (i < pickedIds.length) ? pickedIds[i] : null;
+
           return Padding(
             padding: EdgeInsets.only(right: i == c - 1 ? 0 : gap),
             child: Transform.translate(
-              offset: Offset(0, dy[i]),
-              child: Transform.rotate(
-                angle: rots[i],
-                child: _SmallCardPreview(
-                  width: cardW,
-                  height: cardH,
-                  cardId: id,
-                ),
+              offset: Offset(0, yOffsetFor(i)),
+              child: _TarotFrontCardPreview(
+                width: cardW,
+                height: cardH,
+                cardId: id,
               ),
             ),
           );
@@ -294,12 +313,15 @@ class _PickedCardsStaggered extends StatelessWidget {
   }
 }
 
-class _SmallCardPreview extends StatelessWidget {
+/// ===============================
+/// ✅ 앞면 프리뷰
+/// ===============================
+class _TarotFrontCardPreview extends StatelessWidget {
   final double width;
   final double height;
   final int? cardId;
 
-  const _SmallCardPreview({
+  const _TarotFrontCardPreview({
     required this.width,
     required this.height,
     required this.cardId,
@@ -307,56 +329,65 @@ class _SmallCardPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const r = 12.0;
+    const outerR = 9.0;
 
     final id = cardId;
-    String? path;
-    if (id != null && id >= 0 && id < ArcanaLabels.kTarotFileNames.length) {
-      final fn = ArcanaLabels.kTarotFileNames[id];
-      path = 'asset/cards/$fn';
+    if (id == null || id < 0 || id >= ArcanaLabels.kTarotFileNames.length) {
+      final paper = _a(const Color(0xFFFFF2E6), 0.96);
+      final ink = _a(const Color(0xFF3A2147), 0.84);
+
+      return Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: paper,
+          borderRadius: BorderRadius.circular(outerR),
+          boxShadow: [
+            BoxShadow(
+              color: _a(Colors.black, 0.10),
+              blurRadius: 12,
+              offset: const Offset(0, 10),
+              spreadRadius: -4,
+            ),
+          ],
+        ),
+        child: Center(child: Icon(Icons.style_rounded, size: 18, color: ink)),
+      );
     }
 
-    final bg = _a(Colors.black, 0.045);
+    final fn = ArcanaLabels.kTarotFileNames[id];
+    final path = 'asset/cards/$fn';
 
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(r),
-        color: bg,
+        borderRadius: BorderRadius.circular(outerR),
         boxShadow: [
           BoxShadow(
-            color: _a(Colors.black, 0.14),
-            blurRadius: 18,
+            color: _a(Colors.black, 0.18),
+            blurRadius: 16,
             offset: const Offset(0, 12),
-            spreadRadius: -8,
-          ),
-          BoxShadow(
-            color: _a(Colors.white, 0.10),
-            blurRadius: 10,
-            offset: const Offset(0, -6),
-            spreadRadius: -10,
+            spreadRadius: -6,
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(r),
-        child: path == null
-            ? Center(
-          child: Icon(Icons.style_rounded,
-              size: 18, color: _a(AppTheme.headerInk, 0.70)),
-        )
-            : Padding(
-          padding:
-          const EdgeInsets.symmetric(horizontal: 2.2, vertical: 1.8),
-          child: Transform.scale(
-            scaleX: 1.05,
-            scaleY: 1.04,
-            child: Image.asset(
-              path,
-              fit: BoxFit.contain,
-              alignment: Alignment.center,
-              filterQuality: FilterQuality.high,
+        borderRadius: BorderRadius.circular(outerR),
+        child: Container(
+          color: _a(Colors.black, 0.06),
+          alignment: Alignment.center,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2.2, vertical: 1.8),
+            child: Transform.scale(
+              scaleX: 1.06,
+              scaleY: 1.04,
+              child: Image.asset(
+                path,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                filterQuality: FilterQuality.high,
+              ),
             ),
           ),
         ),
@@ -366,38 +397,26 @@ class _SmallCardPreview extends StatelessWidget {
 }
 
 /// ===============================
-/// ✅ 입력 박스 (진짜 투명)
+/// ✅ 얇은 라인 (텍스트박스 밖으로 분리)
 /// ===============================
-class _DiaryInputTransparent extends StatefulWidget {
-  final TextEditingController controller;
+class _ThinLine extends StatefulWidget {
   final FocusNode focusNode;
-  final double maxHeight;
-  final bool showLine;
-
-  const _DiaryInputTransparent({
-    required this.controller,
-    required this.focusNode,
-    this.maxHeight = 180,
-    this.showLine = true,
-  });
+  const _ThinLine({required this.focusNode});
 
   @override
-  State<_DiaryInputTransparent> createState() => _DiaryInputTransparentState();
+  State<_ThinLine> createState() => _ThinLineState();
 }
 
-class _DiaryInputTransparentState extends State<_DiaryInputTransparent> {
-  bool _focused = false;
-
+class _ThinLineState extends State<_ThinLine> {
   @override
   void initState() {
     super.initState();
     widget.focusNode.addListener(_onFocus);
-    _focused = widget.focusNode.hasFocus;
   }
 
   void _onFocus() {
     if (!mounted) return;
-    setState(() => _focused = widget.focusNode.hasFocus);
+    setState(() {});
   }
 
   @override
@@ -408,65 +427,91 @@ class _DiaryInputTransparentState extends State<_DiaryInputTransparent> {
 
   @override
   Widget build(BuildContext context) {
-    final hint = _a(AppTheme.homeInkWarm, 0.40);
-    final text = _a(AppTheme.homeInkWarm, 0.92);
-    final cursor = _a(AppTheme.homeInkWarm, 0.72);
-    final line = _a(Colors.white, _focused ? 0.18 : 0.10);
+    final focused = widget.focusNode.hasFocus;
+    final line = _a(Colors.white, focused ? 0.18 : 0.10);
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: widget.maxHeight),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: TextField(
-                controller: widget.controller,
-                focusNode: widget.focusNode,
-                cursorColor: cursor,
-                maxLines: null,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                style: AppTheme.uiSmallLabel.copyWith(
-                  fontSize: 14.2,
-                  height: 1.55,
-                  fontWeight: FontWeight.w800,
-                  color: text,
-                ),
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  filled: false,
-                  hintText: '오늘의 감정, 떠오른 장면, 카드가 말해주는 것…\n짧게라도 좋아.',
-                  hintStyle: AppTheme.uiSmallLabel.copyWith(
-                    fontSize: 13.2,
-                    height: 1.5,
-                    fontWeight: FontWeight.w800,
-                    color: hint,
-                  ),
-                  contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                ),
-              ),
-            ),
-          ),
-          if (widget.showLine)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              height: 1,
-              margin: const EdgeInsets.only(top: 6),
-              decoration: BoxDecoration(
-                color: line,
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-        ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      height: 1,
+      decoration: BoxDecoration(
+        color: line,
+        borderRadius: BorderRadius.circular(99),
       ),
     );
   }
 }
 
 /// ===============================
-/// 저장 버튼 (기존 유지)
+/// ✅ 입력 박스: 고정 높이 안에서 스크롤(TextField 자체 스크롤)
+/// ===============================
+class _DiaryInputTransparent extends StatefulWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+
+  const _DiaryInputTransparent({
+    required this.controller,
+    required this.focusNode,
+  });
+
+  @override
+  State<_DiaryInputTransparent> createState() => _DiaryInputTransparentState();
+}
+
+class _DiaryInputTransparentState extends State<_DiaryInputTransparent> {
+  final ScrollController _scrollC = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollC.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hint = _a(AppTheme.homeInkWarm, 0.40);
+    final text = _a(AppTheme.homeInkWarm, 0.92);
+    final cursor = _a(AppTheme.homeInkWarm, 0.72);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: TextField(
+        controller: widget.controller,
+        focusNode: widget.focusNode,
+        scrollController: _scrollC,
+        cursorColor: cursor,
+
+        expands: true,
+        maxLines: null,
+        minLines: null,
+
+        keyboardType: TextInputType.multiline,
+        textInputAction: TextInputAction.newline,
+
+        style: AppTheme.uiSmallLabel.copyWith(
+          fontSize: 14.2,
+          height: 1.55,
+          fontWeight: FontWeight.w800,
+          color: text,
+        ),
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          filled: false,
+          hintText: '내일의 감정, 예상되는 장면, 카드가 말해주는 흐름…\n짧게라도 좋아.',
+          hintStyle: AppTheme.uiSmallLabel.copyWith(
+            fontSize: 13.2,
+            height: 1.5,
+            fontWeight: FontWeight.w800,
+            color: hint,
+          ),
+          contentPadding: const EdgeInsets.fromLTRB(8, 14, 8, 14),
+        ),
+      ),
+    );
+  }
+}
+
+/// ===============================
+/// 저장 버튼
 /// ===============================
 class _SaveButton extends StatefulWidget {
   final bool enabled;
@@ -494,19 +539,15 @@ class _SaveButtonState extends State<_SaveButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.enabled;
-    final h = widget.compact ? 52.0 : 54.0;
 
-    final base =
-    enabled ? _a(const Color(0xFFFFF2E6), 0.94) : _a(Colors.white, 0.50);
-    final border = enabled
-        ? _a(AppTheme.headerInk, 0.18)
-        : _a(AppTheme.panelBorder, 0.18);
+    final h = widget.compact ? 46.0 : 54.0;
+    final r = widget.compact ? 16.0 : 18.0;
 
-    final text = enabled
-        ? _a(const Color(0xFF3A2147), 0.92)
-        : _a(const Color(0xFF3A2147), 0.45);
-    final icon =
-    enabled ? _a(AppTheme.headerInk, 0.76) : _a(AppTheme.headerInk, 0.38);
+    final base = enabled ? _a(const Color(0xFFFFF2E6), 0.94) : _a(Colors.white, 0.50);
+    final border = enabled ? _a(AppTheme.headerInk, 0.18) : _a(AppTheme.panelBorder, 0.18);
+
+    final text = enabled ? _a(const Color(0xFF3A2147), 0.92) : _a(const Color(0xFF3A2147), 0.45);
+    final icon = enabled ? _a(AppTheme.headerInk, 0.76) : _a(AppTheme.headerInk, 0.38);
 
     return IgnorePointer(
       ignoring: !enabled,
@@ -518,7 +559,7 @@ class _SaveButtonState extends State<_SaveButton> {
           scale: _down ? 0.985 : 1.0,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(r),
               color: base,
               border: Border.all(color: border, width: 1.0),
               boxShadow: [
@@ -531,11 +572,11 @@ class _SaveButtonState extends State<_SaveButton> {
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(r),
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(r),
                   onTap: widget.onTap,
                   onTapDown: (_) => _setDown(true),
                   onTapCancel: () => _setDown(false),

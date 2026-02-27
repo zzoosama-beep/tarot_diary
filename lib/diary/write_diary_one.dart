@@ -6,6 +6,7 @@ import '../cardpicker.dart' as cp;
 import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../arcana/arcana_labels.dart';
+import '../backend/diary_repo.dart';
 
 // ✅ 다음 화면
 import 'write_diary_two.dart';
@@ -44,6 +45,18 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     return true;
   }
 
+  // =========================
+  // ✅ 기존 일기 로드 상태
+  // =========================
+  bool _loadingExisting = false;
+  bool _hasExisting = false;
+  String _existingBeforeText = '';
+
+  DateTime get _targetDate {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+  }
+
   /// ✅ 완료된 카드 id 리스트(1~3장)
   List<int> get _pickedIds {
     final out = <int>[];
@@ -52,6 +65,62 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
       if (id != null) out.add(id);
     }
     return out;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingIfAny();
+  }
+
+  Future<void> _loadExistingIfAny() async {
+    if (_loadingExisting) return;
+    setState(() => _loadingExisting = true);
+
+    try {
+      final data = await DiaryRepo.I.read(date: _targetDate);
+      if (!mounted) return;
+
+      if (data == null) {
+        setState(() {
+          _hasExisting = false;
+          _existingBeforeText = '';
+        });
+        return;
+      }
+
+      final int cc = ((data['cardCount'] as num?)?.toInt() ?? 1).clamp(1, 3);
+      final List<int> ids =
+          (data['cards'] as List?)?.map((e) => (e as num).toInt()).toList() ??
+              <int>[];
+
+      final beforeText = (data['beforeText'] ?? '').toString();
+
+      // ✅ 기존 데이터로 UI 세팅
+      setState(() {
+        _cardCount = cc;
+
+        _resetAll();
+
+        for (int i = 0; i < cc && i < ids.length; i++) {
+          final safe = ids[i].clamp(0, ArcanaLabels.kTarotFileNames.length - 1);
+          _slotCardIds[i] = safe;
+        }
+        _rebuildUsedFromSlots();
+        _flipped.addAll(List<int>.generate(cc, (i) => i));
+
+        _hasExisting = true;
+        _existingBeforeText = beforeText;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _hasExisting = false;
+        _existingBeforeText = '';
+      });
+    } finally {
+      if (mounted) setState(() => _loadingExisting = false);
+    }
   }
 
   // -----------------------
@@ -123,7 +192,13 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     );
 
     if (ok != true) return;
-    setState(_resetAll);
+
+    // ✅ 다시뽑기 했으면 "기존 불러옴" 상태는 해제(새로 작성 흐름)
+    setState(() {
+      _resetAll();
+      _hasExisting = false;
+      _existingBeforeText = '';
+    });
   }
 
   // -----------------------
@@ -132,9 +207,13 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   void _onChangeCount(int v) {
     final next = v.clamp(1, 3);
     if (next == _cardCount) return;
+
+    // ✅ 카드 장수 바꾸면 "내일 기존 일기"와 달라질 수 있으니 신규 흐름으로
     setState(() {
       _cardCount = next;
       _resetAll();
+      _hasExisting = false;
+      _existingBeforeText = '';
     });
   }
 
@@ -162,6 +241,15 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   void _onTapCard(int index) async {
     if (index >= _cardCount) return;
     if (_flipped.contains(index)) return;
+
+    // ✅ 기존 데이터가 로드된 상태에서 직접 카드 탭해서 바꾸기 시작하면
+    //    이제부터는 "수정"이 아니라 "새 조합" 흐름이 되니까 기존텍스트 프리필도 끊어줌
+    if (_hasExisting) {
+      setState(() {
+        _hasExisting = false;
+        _existingBeforeText = '';
+      });
+    }
 
     _rebuildUsedFromSlots();
 
@@ -202,7 +290,11 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     }
     if (uniq.isEmpty) return;
 
+    // ✅ picker로 새로 선택했으면 기존텍스트 프리필 끊고 신규 흐름
     setState(() {
+      _hasExisting = false;
+      _existingBeforeText = '';
+
       _resetAll();
       for (int i = 0; i < uniq.length && i < _cardCount; i++) {
         _slotCardIds[i] = uniq[i];
@@ -226,6 +318,12 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
         builder: (_) => WriteDiaryTwoPage(
           pickedCardIds: _pickedIds,
           cardCount: _cardCount,
+
+          // ✅ "내일" 날짜로 저장/수정되게 강제
+          selectedDate: _targetDate,
+
+          // ✅ 기존 내일 일기 있으면 텍스트 프리필
+          initialBeforeText: _hasExisting ? _existingBeforeText : null,
         ),
       ),
     );
@@ -235,12 +333,23 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   Widget build(BuildContext context) {
     const gap = 12.0;
     const targetW = 82.0;
+    const cardGap = 12.0;
+    const maxCardW = 104.0;
+
+    final w = LayoutTokens.contentW(context);
+    final fitWFor3 = (w - (cardGap * 2)) / 3;
+    final cardW = math.min(maxCardW, fitWFor3);
+
     final rowMaxW = math.min(
       LayoutTokens.contentW(context),
       (targetW * 3) + (gap * 2),
     );
 
     final contentW = LayoutTokens.contentW(context);
+
+    final String hintLine = _loadingExisting
+        ? '불러오는 중…'
+        : (_hasExisting ? '내일 일기 불러왔어. 수정할 수 있어!' : '카드를 누르면 자동으로 펼쳐져');
 
     return Scaffold(
       backgroundColor: AppTheme.bgColor,
@@ -260,7 +369,24 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                   width: contentW,
                   child: Column(
                     children: [
-                      const SizedBox(height: 34),
+                      const Spacer(flex: 1),
+
+                      Padding(
+                        padding: const EdgeInsets.only(top: 0, bottom: 10),
+                        child: Text(
+                          hintLine,
+                          textAlign: TextAlign.center,
+                          style: AppTheme.uiSmallLabel.copyWith(
+                            fontSize: 11.2,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.2,
+                            color: _a(AppTheme.homeInkWarm, _loadingExisting ? 0.58 : 0.46),
+                            height: 1.0,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
 
                       _BackCardRow(
                         count: _cardCount,
@@ -271,49 +397,40 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                         onReset: _onResetCards,
                       ),
 
-                      const SizedBox(height: 26),
-                      Text(
-                        '카드를 탭하면 자동으로 펼쳐져 ✨\n직접 뽑고 싶으면 아래 버튼을 눌러줘',
-                        textAlign: TextAlign.center,
-                        style: AppTheme.uiSmallLabel.copyWith(
-                          fontSize: 12.2,
-                          fontWeight: FontWeight.w800,
-                          color: _a(AppTheme.homeInkWarm, 0.70),
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 45),
+
                       _CountChips(
                         value: _cardCount,
                         onChanged: _onChangeCount,
                       ),
-                      const SizedBox(height: 18),
 
-                      // ✅ 메인 CTA(1개만): 직접 카드 뽑기
+                      const SizedBox(height: 24),
+
                       SizedBox(
                         width: rowMaxW,
                         child: _RitualCtaButton(
                           label: '직접 카드 뽑기',
                           onTap: _onManualPickCards,
-                          height: 46, // ✅ 낮춤
+                          height: 46,
                           compact: true,
                         ),
                       ),
 
-                      // ✅ 보조 액션: 작은 + 칩 + 멘트 (CTA처럼 안 보이게)
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 30),
+
                       SizedBox(
                         width: rowMaxW,
-                        child: Center(
+                        child: Align(
+                          alignment: Alignment.center,
                           child: _PlusWriteInlineAction(
-                            enabled: _isSelectionComplete,
+                            enabled: !_loadingExisting && _isSelectionComplete,
                             onTap: _goToWriteTwo,
-                            label: '이 카드로 내일 일기 쓰기',
+                            label: _hasExisting ? '이 카드로 내일 일기 수정하기' : '이 카드로 내일 일기 쓰기',
                           ),
                         ),
                       ),
 
-                      const SizedBox(height: 22),
+                      const Spacer(flex: 3),
                     ],
                   ),
                 ),
@@ -403,7 +520,6 @@ class _BackCardRow extends StatelessWidget {
     const gap = 12.0;
     final c = count.clamp(1, 3);
 
-    // ✅ 항상 "3장" 기준으로 폭 계산
     const maxCardW = 104.0;
     final fitWFor3 = (w - (gap * 2)) / 3;
     final cardW = math.min(maxCardW, fitWFor3);
@@ -416,7 +532,6 @@ class _BackCardRow extends StatelessWidget {
       return i == 0 ? 1 : 0;
     }
 
-    // Row 자체 폭(카드 3장 기준)으로 Stack을 잡아서 우상단 버튼 위치 안정화
     final rowWFor3 = (cardW * 3) + (gap * 2);
 
     return SizedBox(
@@ -530,12 +645,10 @@ class _PlusWriteInlineActionState extends State<_PlusWriteInlineAction> {
   Widget build(BuildContext context) {
     final enabled = widget.enabled;
 
-    // ✅ +가 확실히 보이게 대비를 강하게
     final chipBg = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(Colors.white, 0.34);
     final chipBorder = enabled ? _a(AppTheme.headerInk, 0.24) : _a(AppTheme.panelBorder, 0.18);
     final plus = enabled ? _a(AppTheme.headerInk, 0.95) : _a(AppTheme.headerInk, 0.40);
 
-    // ✅ 텍스트는 "버튼" 말고 "서브 액션" 톤
     final text = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
 
     return IgnorePointer(
@@ -557,7 +670,6 @@ class _PlusWriteInlineActionState extends State<_PlusWriteInlineAction> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ✅ 너무 크지 않게 30px
                   Container(
                     width: 30,
                     height: 30,

@@ -1,4 +1,4 @@
-// calander_diary.dart
+// lib/diary/calander_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:tarot_diary/arcana/arcana_labels.dart';
@@ -10,11 +10,11 @@ import '../ui/tarot_card_preview.dart';
 
 // ✅ 레이아웃 규격 토큰 (TopBox/CenterBox/BottomBox 포함)
 import '../ui/layout_tokens.dart';
-// ✅ 공용 CTA 버튼 (저장/수정/삭제)
+// ✅ 공용 CTA 버튼 (저장/수정/삭제 + HomeFloatingButton 포함)
 import '../ui/app_buttons.dart';
 
 import '../backend/diary_repo.dart';
-import '../cardpicker.dart' as cp;
+import '../cardpicker.dart' as cp; // (프로젝트에서 쓰고 있으면 유지)
 
 enum DiaryViewMode { calendar, list }
 
@@ -24,9 +24,13 @@ Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 class CalanderDiaryPage extends StatefulWidget {
   final DiaryViewMode initialViewMode;
 
+  /// ✅ 외부에서 캘린더가 “바로 보여줄 날짜”
+  final DateTime? selectedDate;
+
   const CalanderDiaryPage({
     super.key,
     this.initialViewMode = DiaryViewMode.calendar,
+    this.selectedDate,
   });
 
   @override
@@ -34,54 +38,54 @@ class CalanderDiaryPage extends StatefulWidget {
 }
 
 class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
-  // ✅ 1) 여기(필드)에 컨트롤러 선언
   final ScrollController _sc = ScrollController();
 
-  // ✅ list_diary 카드 썸네일과 동일 규격
   static const double _thumbW = 62.0;
   static const double _thumbH = 108.0;
   static const double _thumbGap = 10.0;
 
-
-  // ✅ 2) initState() 바로 아래에 dispose 추가
   @override
   void dispose() {
     _sc.dispose();
     super.dispose();
   }
 
-  // ================== THEME (AppTheme에서 관리) ==================
-  static const Color bgSolid = AppTheme.bgSolid;
-  static const Color gold = AppTheme.gold;
-  static const Color headerInk = AppTheme.headerInk;
+  // ================== THEME (✅ purple base + 1~2 tone brighter panels) ==================
 
+  // ✅ 배경은 기존 보라 유지 (AppTheme의 bgColor를 스캐폴드 배경으로 사용)
+  static const Color bgSolid = AppTheme.bgColor;
+
+  // ✅ 잉크
+  static const Color headerInk = AppTheme.homeInkWarm;
   static const Color sundayInk = AppTheme.sundayInk;
   static const Color saturdayInk = AppTheme.saturdayInk;
 
-  // 클릭/하이라이트
-  Color get _inkSplash => AppTheme.inkSplash;
-  Color get _inkHighlight => AppTheme.inkHighlight;
-
-  // 보더
-  Color get _panelBorder => AppTheme.panelBorder;
-  Color get _panelBorderSoft => AppTheme.panelBorderSoft;
-
-  // 캘린더 전용(저채도/저대비)
+  // 캘린더 숫자용
   static const Color calInk = AppTheme.calInk;
   static const Color calMuted = AppTheme.calMuted;
-  static const Color calLine = AppTheme.calLine;
-  static const Color calSun = AppTheme.calSun;
-  static const Color calSat = AppTheme.calSat;
 
   static const double _radius = AppTheme.radius;
   static const double _innerRadius = AppTheme.innerRadius;
 
-  // ✅ 카드 검은 테두리 트림(원본 기준, 확대 없음)
-  static const double _cardTrimWf = 0.945; // 좌/우 더 많이 잘라냄
-  static const double _cardTrimHf = 0.972; // 상/하 적당히
+  // ✅ 카드 검은 테두리 트림
+  static const double _cardTrimWf = 0.945;
+  static const double _cardTrimHf = 0.972;
 
-  // ✅✅ 요일-보더를 더 바짝 붙이기 위해 보더/그리드를 같이 위로 올리는 값
   static const double _weekdayLift = 6.0;
+
+  Color get _panelFill => AppTheme.panelFill;
+  Color get _panelInner => AppTheme.calendarBg;
+  Color get _panelInnerStrong => AppTheme.diaryFieldBg;
+
+  Color get _panelBorder => AppTheme.panelBorder;
+  Color get _panelBorderSoft => AppTheme.panelBorderSoft;
+
+  Color get _strokeSoft => _a(AppTheme.headerInk, 0.12);
+  Color get _stroke => _a(AppTheme.headerInk, 0.18);
+  Color get _strokeStrong => _a(AppTheme.accent, 0.34);
+
+  Color get _inkSplash => AppTheme.inkSplash;
+  Color get _inkHighlight => AppTheme.inkHighlight;
 
   // ================== 상태 ==================
   DiaryViewMode _viewMode = DiaryViewMode.calendar;
@@ -92,12 +96,10 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
   bool _loadingDay = false;
   int _loadDayNonce = 0;
 
-  bool _bootLoading = true; // ✅ 최초 진입 플래시 방지 핵심
+  bool _bootLoading = true;
 
-  // 월 도트용
   Set<int> _hasEntryKeys = <int>{};
 
-  // ✅✅ 선택 날짜 데이터는 월Set이 아니라 별도 상태로 들고감 (플래시 방지)
   bool _selectedHasEntry = false;
   List<String> _selectedCards = <String>[];
   String _selectedBefore = '';
@@ -105,11 +107,22 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
   bool _cardsExpanded = true;
 
-
   @override
   void initState() {
     super.initState();
     _viewMode = widget.initialViewMode;
+
+    final d = widget.selectedDate;
+    if (d != null) {
+      final normalized = DateTime(d.year, d.month, d.day);
+      _selectedDay = normalized;
+      _focusedMonth = DateTime(normalized.year, normalized.month, 1);
+    } else {
+      final now = DateTime.now();
+      _focusedMonth = DateTime(now.year, now.month, 1);
+      _selectedDay = DateTime(now.year, now.month, now.day);
+    }
+
     _bootstrap();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -129,8 +142,16 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
   String _monthLabel(DateTime m) => "${m.year}년 ${m.month}월";
 
-  TextStyle get _tsTitle => AppTheme.title;
-  TextStyle get _tsMonth => AppTheme.month;
+  TextStyle get _tsTitle => AppTheme.title.copyWith(color: _a(headerInk, 0.96));
+
+  // ✅ 변경 1) 월 이동 텍스트: 작아 보이던 문제 해결 (size/weight/색상 강화)
+  TextStyle get _tsMonth => AppTheme.month.copyWith(
+    fontSize: 14.6,
+    fontWeight: FontWeight.w700,
+    height: 1.0,
+    color: _a(AppTheme.tSecondary, 0.85),
+  );
+
   TextStyle get _tsBody => AppTheme.body;
 
   // ================== 삭제 다이얼로그 ==================
@@ -143,11 +164,11 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
       barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: _a(AppTheme.bgSolid, 0.98),
+          backgroundColor: _panelFill,
           surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: _a(AppTheme.gold, 0.18), width: 1),
+            side: BorderSide(color: _stroke, width: 1),
           ),
           titlePadding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
           contentPadding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
@@ -176,13 +197,10 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
               const SizedBox(height: 12),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14, // ✅ 여기서 박스 높이 확보
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 decoration: BoxDecoration(
-                  color: _a(danger, 0.06),
-                  borderRadius: BorderRadius.circular(14), // 살짝만 완화
+                  color: _a(danger, 0.08),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: _a(danger, 0.45), width: 1),
                 ),
                 child: RichText(
@@ -197,7 +215,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                       TextSpan(
                         text: _formatDateLabel(_selectedDay),
                         style: TextStyle(
-                          color: _a(AppTheme.gold, 0.95),
+                          color: _a(AppTheme.homeInkWarm, 0.96),
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -213,24 +231,22 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
           actions: [
             Row(
               children: [
-                const Spacer(), // ✅ 버튼들을 오른쪽으로 몰기
-
-                // ✅ 취소
+                const Spacer(),
                 SizedBox(
-                  height: 30, // ✅ 높이 통일 (너무 높지 않게)
+                  height: 30,
                   child: FilledButton(
                     autofocus: true,
                     onPressed: () => Navigator.of(ctx).pop(false),
                     style: FilledButton.styleFrom(
-                      backgroundColor: _a(AppTheme.gold, 0.10),
+                      backgroundColor: _a(AppTheme.accent, 0.10),
                       foregroundColor: _a(AppTheme.tPrimary, 0.90),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       visualDensity: const VisualDensity(horizontal: -1, vertical: -2),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10), // ✅ 12 -> 10 (라운드 덜)
-                        side: BorderSide(color: _a(AppTheme.gold, 0.18), width: 1),
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(color: _stroke, width: 1),
                       ),
                       textStyle: GoogleFonts.gowunDodum(
                         fontSize: 12.2,
@@ -240,23 +256,20 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                     child: const Text('취소'),
                   ),
                 ),
-
-                const SizedBox(width: 8), // ✅ 버튼 간격 줄이기 (기존 8~12보다 더 타이트하게 가능)
-
-                // ✅ 삭제하기 (오른쪽 라인 맞추기)
+                const SizedBox(width: 8),
                 SizedBox(
                   height: 30,
                   child: FilledButton(
                     onPressed: () => Navigator.of(ctx).pop(true),
                     style: FilledButton.styleFrom(
-                      backgroundColor: _a(const Color(0xFFB45A64), 0.88),
-                      foregroundColor: _a(Colors.white, 0.94),
+                      backgroundColor: _a(danger, 0.90),
+                      foregroundColor: _a(Colors.white, 0.96),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       visualDensity: const VisualDensity(horizontal: -1, vertical: -2),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10), // ✅ 동일하게
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       textStyle: GoogleFonts.gowunDodum(
                         fontSize: 12.2,
@@ -269,10 +282,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
               ],
             ),
           ],
-
-
-
-
         );
       },
     );
@@ -282,7 +291,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
         await DiaryRepo.I.delete(date: _selectedDay);
         if (!mounted) return;
 
-        // ✅ UI 즉시 갱신
         final k = _key(_selectedDay);
         setState(() {
           _selectedHasEntry = false;
@@ -294,9 +302,13 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
+            backgroundColor: _panelFill,
             content: Text(
               '삭제 완료',
-              style: GoogleFonts.gowunDodum(fontWeight: FontWeight.w800),
+              style: GoogleFonts.gowunDodum(
+                fontWeight: FontWeight.w800,
+                color: _a(AppTheme.tPrimary, 0.92),
+              ),
             ),
             duration: const Duration(milliseconds: 1100),
           ),
@@ -305,36 +317,31 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('삭제 실패: $e'),
+            backgroundColor: _panelFill,
+            content: Text(
+              '삭제 실패: $e',
+              style: GoogleFonts.gowunDodum(color: _a(AppTheme.tPrimary, 0.92)),
+            ),
             duration: const Duration(milliseconds: 1400),
           ),
         );
       }
     }
-
   }
 
   // ================== 데이터 로딩 ==================
   Future<void> _bootstrap() async {
     if (!mounted) return;
-
     setState(() => _bootLoading = true);
 
     try {
-      // ✅ 로컬 DB는 로그인/uid 불필요
       await _loadMonthDots();
       await _loadSelectedDay();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('초기화 실패: $e')),
-      );
     } finally {
       if (!mounted) return;
       setState(() => _bootLoading = false);
     }
   }
-
 
   Future<void> _loadMonthDots() async {
     try {
@@ -347,15 +354,12 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     }
   }
 
-
   Future<void> _loadSelectedDay() async {
     final nonce = ++_loadDayNonce;
-
     setState(() => _loadingDay = true);
 
     try {
       final data = await DiaryRepo.I.read(date: _selectedDay);
-
       if (!mounted || nonce != _loadDayNonce) return;
 
       final k = _key(_selectedDay);
@@ -366,7 +370,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
           _selectedBefore = '';
           _selectedAfter = '';
           _selectedCards = <String>[];
-
           _hasEntryKeys.remove(k);
         });
         return;
@@ -374,7 +377,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
 
       final beforeText = (data['beforeText'] ?? '').toString();
       final afterText = (data['afterText'] ?? '').toString();
-
       final ids = (data['cards'] as List?)?.map((e) => (e as num).toInt()).toList() ?? <int>[];
 
       String cardAssetPath(int id) {
@@ -389,14 +391,12 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
         _selectedBefore = beforeText;
         _selectedAfter = afterText;
         _selectedCards = cards;
-
         _hasEntryKeys.add(k);
       });
     } finally {
       if (mounted) setState(() => _loadingDay = false);
     }
   }
-
 
   void _prevMonth() {
     setState(() {
@@ -421,18 +421,11 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
   }
 
   Future<void> _openListPage() async {
-    await Navigator.of(context).push(
-      _fadeRoute(
-        ListDiaryPage(initialDate: _selectedDay),
-      ),
-    );
+    await Navigator.of(context).push(_fadeRoute(ListDiaryPage(initialDate: _selectedDay)));
   }
 
   Future<void> _onWriteOrEdit() async {
-    final result = await Navigator.of(context).push(
-      _fadeRoute(WriteDiaryPage(selectedDate: _selectedDay)),
-    );
-
+    final result = await Navigator.of(context).push(_fadeRoute(WriteDiaryPage(selectedDate: _selectedDay)));
     if (!mounted) return;
     if (result == true) {
       await _loadMonthDots();
@@ -448,11 +441,21 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     return List<DateTime>.generate(42, (i) => gridStart.add(Duration(days: i)));
   }
 
-  Color _dayNumberColor(DateTime day, {required bool isInMonth}) {
-    if (!isInMonth) return _a(calMuted, 0.55);
-    if (day.weekday == DateTime.sunday) return _a(calSun, 0.90);
-    if (day.weekday == DateTime.saturday) return _a(calSat, 0.90);
-    return _a(calInk, 0.88);
+  // ================== ✅ 색 규칙 (요일 제목과 숫자 색 통일) ==================
+  // - "일/토 숫자"는 요일 한글에 적용된 색(sundayInk/saturdayInk) 그대로 사용
+  // - 평일 숫자는 calInk 톤다운
+  Color _dayNumberColor(
+      DateTime day, {
+        required bool isInMonth,
+        required Color sundayWeekdayInk,
+        required Color saturdayWeekdayInk,
+      }) {
+    if (!isInMonth) return _a(calMuted, 0.48);
+
+    if (day.weekday == DateTime.sunday) return sundayWeekdayInk; // ✅ 한글(일) 색 그대로
+    if (day.weekday == DateTime.saturday) return saturdayWeekdayInk; // ✅ 한글(토) 색 그대로
+
+    return _a(calInk, 0.72);
   }
 
   Widget _buildDayCell({
@@ -464,18 +467,22 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
   }) {
     final bool isToday = _isToday(day) && isInMonth;
 
+    final bool showBadge = isSelected || isToday;
+    final Color todayBorder = _a(AppTheme.accent, 0.62);
+    final Color todayFill = _a(AppTheme.accent, 0.08);
+    final Color selectedBorder = _strokeStrong;
+    final Color selectedFill = _a(AppTheme.accent, 0.12);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        splashColor: isInMonth ? _a(calLine, 0.18) : Colors.transparent,
-        highlightColor: isInMonth ? _a(calLine, 0.10) : Colors.transparent,
+        splashColor: isInMonth ? _a(AppTheme.accent, 0.12) : Colors.transparent,
+        highlightColor: isInMonth ? _a(AppTheme.accent, 0.06) : Colors.transparent,
         onTap: () {
           setState(() {
             _selectedDay = day;
-            if (!isInMonth) {
-              _focusedMonth = DateTime(day.year, day.month);
-            }
+            if (!isInMonth) _focusedMonth = DateTime(day.year, day.month);
           });
           _loadSelectedDay();
           if (!isInMonth) _loadMonthDots();
@@ -489,18 +496,18 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    if (isSelected || isToday)
+                    if (showBadge)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 140),
                         curve: Curves.easeOut,
-                        width: 32,
-                        height: 28,
+                        width: 30,
+                        height: 30,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          color: isSelected ? _a(gold, 0.14) : Colors.transparent,
+                          shape: BoxShape.circle,
+                          color: isSelected ? selectedFill : (isToday ? todayFill : Colors.transparent),
                           border: Border.all(
-                            color: _a(gold, isSelected ? 0.55 : 0.40),
-                            width: isSelected ? 1.4 : 1.0,
+                            color: isSelected ? selectedBorder : (isToday ? todayBorder : _strokeSoft),
+                            width: 1.2,
                           ),
                         ),
                       ),
@@ -509,9 +516,11 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                       child: Text(
                         '${day.day}',
                         style: GoogleFonts.gowunDodum(
-                          color: isToday ? _a(gold, 0.85) : dayColor,
-                          fontSize: isSelected ? 13.2 : 12.9,
-                          fontWeight: isSelected ? FontWeight.w900 : FontWeight.w800,
+                          color: isSelected
+                              ? _a(AppTheme.tPrimary, 0.96)
+                              : (isToday ? _a(AppTheme.tPrimary, 0.90) : dayColor),
+                          fontSize: 13.0,
+                          fontWeight: FontWeight.w800,
                           height: 1.0,
                         ),
                       ),
@@ -530,7 +539,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                       height: 4.2,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _a(calInk, isSelected ? 0.75 : 0.45),
+                        color: _a(AppTheme.accent, isSelected ? 0.75 : (isToday ? 0.60 : 0.45)),
                       ),
                     ),
                   ),
@@ -542,49 +551,39 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
     );
   }
 
-  String _bottomCtaLabel(bool hasSelected) => hasSelected ? '일기 수정' : '일기 쓰기';
-
   @override
   Widget build(BuildContext context) {
     final monthCells = _buildMonthCells(_focusedMonth);
 
-    // ✅ 이제 선택 날짜 유무는 이 값만 봄(플래시 방지)
     final hasSelected = _selectedHasEntry;
-
     final cards = _selectedCards;
     final before = _selectedBefore.trim();
     final after = _selectedAfter.trim();
 
     final media = MediaQuery.of(context);
     final keyboard = media.viewInsets.bottom;
-
-    // ✅ 키보드가 열릴 때만 bottom padding을 준다 (평소엔 0)
     final double scrollBottomPad = keyboard > 0 ? keyboard + 12.0 : 0.0;
 
-
-    // ✅ 월 셀 has는 월 도트 Set 기준(가벼움)
     bool hasDot(DateTime day, bool inMonth) => inMonth ? _hasEntryKeys.contains(_key(day)) : false;
+
+    // ✅ 변경 2) 요일 회색 제거: 평일 요일도 또렷하게(0.88), 일/토는 0.90로 살짝 더 선명
+    final Color weekdayInk = _a(AppTheme.tPrimary, 0.82);
+    final Color sundayWeekdayInk = _a(sundayInk, 0.85);
+    final Color saturdayWeekdayInk = _a(saturdayInk, 0.85);
 
     return Scaffold(
       backgroundColor: bgSolid,
-
-      // ✅ 오른쪽 하단 홈 버튼 (동그란 + 음영)
       floatingActionButton: HomeFloatingButton(
-        onPressed: () {
-          Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
-          // 또는 MainHomePage로 페이드 이동을 원하면 아래로 바꿔도 됨:
-          // Navigator.of(context).pushAndRemoveUntil(_fadeRoute(const MainHomePage()), (r) => false);
-        },
+        onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: SingleChildScrollView(
                 controller: _sc,
-                primary: false, // ✅ 자동 스크롤 위치 복원 끔
+                primary: false,
                 physics: const ClampingScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(0, LayoutTokens.scrollTopPad, 0, scrollBottomPad),
                 child: Column(
@@ -594,137 +593,133 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                         offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
                         child: _TightIconButton(
                           icon: Icons.arrow_back_rounded,
-                          color: AppTheme.headerInk,
+                          color: _a(headerInk, 0.96),
                           onTap: () => Navigator.of(context).pop(),
                         ),
                       ),
                       title: Text('내 타로일기 보관함', style: _tsTitle),
-                      right: _ViewModeSwitchButton(onTap: _openListPage),
+                      right: _ViewModeSwitchButton(onTap: _openListPage, stroke: _panelBorder),
                     ),
                     const SizedBox(height: 16),
-
                     CenterBox(
                       child: Column(
                         children: [
-                          // 1) 캘린더 카드
-                          _GlassCard(
-                            bg: _a(Colors.white, 0.035),
+                          _PanelCard(
+                            fill: _panelFill,
                             border: _panelBorder,
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(_radius),
-                              child: Container(
-                                color: _a(Colors.white, 0.035),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // ===== 월 이동 =====
-                                    Container(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6), // ✅ 위 여백 추가
+                                    child: Container(
                                       height: 34,
                                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                                      decoration: const BoxDecoration(color: Colors.transparent),
                                       child: Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           _MiniIconButton(
                                             icon: Icons.chevron_left_rounded,
                                             onTap: _prevMonth,
-                                            color: _a(calInk, 0.88),
+                                            color: _a(AppTheme.tSecondary, 0.80),
                                             splash: _inkSplash,
                                             highlight: _inkHighlight,
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 6), // 8 → 6 (살짝 타이트하게)
                                           Text(_monthLabel(_focusedMonth), style: _tsMonth),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 6),
                                           _MiniIconButton(
                                             icon: Icons.chevron_right_rounded,
                                             onTap: _nextMonth,
-                                            color: _a(calInk, 0.88),
+                                            color: _a(AppTheme.tSecondary, 0.80),
                                             splash: _inkSplash,
                                             highlight: _inkHighlight,
                                           ),
                                         ],
                                       ),
                                     ),
+                                  ),
 
-                                    // ===== 요일 =====
-                                    Container(
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                                        color: _a(Colors.white, 0.02),
+                                  // ✅ 요일 줄: 배경(회색 밴드) 제거
+                                  SizedBox(
+                                    height: 40,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      child: Row(
+                                        children: [
+                                          _Weekday("일", color: sundayWeekdayInk),
+                                          _Weekday("월", color: weekdayInk),
+                                          _Weekday("화", color: weekdayInk),
+                                          _Weekday("수", color: weekdayInk),
+                                          _Weekday("목", color: weekdayInk),
+                                          _Weekday("금", color: weekdayInk),
+                                          _Weekday("토", color: saturdayWeekdayInk),
+                                        ],
                                       ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                                        child: Row(
-                                          children: [
-                                            _Weekday("일", color: _a(sundayInk, 0.90)),
-                                            _Weekday("월", color: _a(headerInk, 0.85)),
-                                            _Weekday("화", color: _a(headerInk, 0.85)),
-                                            _Weekday("수", color: _a(headerInk, 0.85)),
-                                            _Weekday("목", color: _a(headerInk, 0.85)),
-                                            _Weekday("금", color: _a(headerInk, 0.85)),
-                                            _Weekday("토", color: _a(saturdayInk, 0.90)),
-                                          ],
+                                    ),
+                                  ),
+
+                                  Transform.translate(
+                                    offset: const Offset(0, -_weekdayLift),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      child: Divider(height: 1, thickness: 1, color: _panelBorderSoft),
+                                    ),
+                                  ),
+
+                                  Transform.translate(
+                                    offset: const Offset(0, -_weekdayLift),
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(4, 1, 4, 4),
+                                      child: GridView.builder(
+                                        shrinkWrap: true,
+                                        physics: const NeverScrollableScrollPhysics(),
+                                        itemCount: 42,
+                                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: 7,
+                                          mainAxisSpacing: 1.5,
+                                          crossAxisSpacing: 1.5,
+                                          childAspectRatio: 1.45,
                                         ),
+                                        itemBuilder: (context, i) {
+                                          final day = monthCells[i];
+                                          final isInMonth = _isSameMonth(day, _focusedMonth);
+                                          final isSelected = day.year == _selectedDay.year &&
+                                              day.month == _selectedDay.month &&
+                                              day.day == _selectedDay.day;
+
+                                          final has = hasDot(day, isInMonth);
+                                          final dayColor = _dayNumberColor(
+                                            day,
+                                            isInMonth: isInMonth,
+                                            sundayWeekdayInk: sundayWeekdayInk,
+                                            saturdayWeekdayInk: saturdayWeekdayInk,
+                                          );
+
+                                          return _buildDayCell(
+                                            day: day,
+                                            isInMonth: isInMonth,
+                                            isSelected: isSelected,
+                                            has: has,
+                                            dayColor: dayColor,
+                                          );
+                                        },
                                       ),
                                     ),
-
-                                    Transform.translate(
-                                      offset: const Offset(0, -_weekdayLift),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                                        child: Divider(height: 1, thickness: 1, color: _panelBorderSoft),
-                                      ),
-                                    ),
-
-                                    Transform.translate(
-                                      offset: const Offset(0, -_weekdayLift),
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(4, 1, 4, 4),
-                                        child: GridView.builder(
-                                          shrinkWrap: true,
-                                          physics: const NeverScrollableScrollPhysics(),
-                                          itemCount: 42,
-                                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount: 7,
-                                            mainAxisSpacing: 1.5,
-                                            crossAxisSpacing: 1.5,
-                                            childAspectRatio: 1.45,
-                                          ),
-                                          itemBuilder: (context, i) {
-                                            final day = monthCells[i];
-                                            final isInMonth = _isSameMonth(day, _focusedMonth);
-                                            final isSelected = day.year == _selectedDay.year &&
-                                                day.month == _selectedDay.month &&
-                                                day.day == _selectedDay.day;
-
-                                            final has = hasDot(day, isInMonth);
-                                            final dayColor = _dayNumberColor(day, isInMonth: isInMonth);
-
-                                            return _buildDayCell(
-                                              day: day,
-                                              isInMonth: isInMonth,
-                                              isSelected: isSelected,
-                                              has: has,
-                                              dayColor: dayColor,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: _weekdayLift),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(height: _weekdayLift),
+                                ],
                               ),
                             ),
                           ),
 
                           const SizedBox(height: 10),
 
-                          // 2) 카드 리스트 (있을 때만)
                           if (cards.isNotEmpty) ...[
-                            _GlassCard(
-                              bg: _a(Colors.white, 0.07),
+                            _PanelCard(
+                              fill: _panelFill,
                               border: _panelBorder,
                               child: Padding(
                                 padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
@@ -742,14 +737,20 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                                           child: Row(
                                             children: [
-                                              Icon(Icons.style_rounded, size: 16, color: _a(gold, 0.78)),
+                                              Icon(Icons.style_rounded, size: 16, color: _a(AppTheme.homeInkWarmDim, 0.82)),
                                               const SizedBox(width: 6),
-                                              Text(_cardsExpanded ? '카드 접기' : '카드 펼치기', style: AppTheme.uiSmallLabel),
+                                              Text(
+                                                _cardsExpanded ? '카드 접기' : '카드 펼치기',
+                                                style: AppTheme.uiSmallLabel.copyWith(color: _a(AppTheme.tPrimary, 0.80)),
+                                              ),
                                               const Spacer(),
                                               AnimatedRotation(
                                                 turns: _cardsExpanded ? 0.5 : 0,
                                                 duration: const Duration(milliseconds: 180),
-                                                child: Icon(Icons.keyboard_arrow_down_rounded, color: _a(gold, 0.80)),
+                                                child: Icon(
+                                                  Icons.keyboard_arrow_down_rounded,
+                                                  color: _a(AppTheme.homeInkWarmDim, 0.82),
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -758,14 +759,12 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                     ),
                                     AnimatedCrossFade(
                                       duration: const Duration(milliseconds: 220),
-                                      crossFadeState: _cardsExpanded
-                                          ? CrossFadeState.showSecond
-                                          : CrossFadeState.showFirst,
+                                      crossFadeState: _cardsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
                                       firstChild: const SizedBox.shrink(),
                                       secondChild: Padding(
                                         padding: const EdgeInsets.only(top: 6),
                                         child: SizedBox(
-                                          height: _thumbH, // ✅ 110 -> list_diary와 동일 높이 느낌
+                                          height: _thumbH,
                                           child: Center(
                                             child: SingleChildScrollView(
                                               scrollDirection: Axis.horizontal,
@@ -774,13 +773,12 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: List.generate(cards.length, (idx) {
                                                   final path = cards[idx];
-
                                                   return Padding(
                                                     padding: EdgeInsets.only(
-                                                      right: idx == cards.length - 1 ? 0 : _thumbGap, // ✅ 8 -> 10
+                                                      right: idx == cards.length - 1 ? 0 : _thumbGap,
                                                     ),
                                                     child: SizedBox(
-                                                      width: _thumbW, // ✅ 88 -> 62 (핵심)
+                                                      width: _thumbW,
                                                       height: _thumbH,
                                                       child: InkWell(
                                                         borderRadius: BorderRadius.circular(10),
@@ -821,7 +819,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                                           ),
                                         ),
                                       ),
-
                                     ),
                                   ],
                                 ),
@@ -830,42 +827,42 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                             const SizedBox(height: 10),
                           ],
 
-                          // 3) 텍스트 박스(내용)
-                          // 3) 텍스트 박스(내용)
                           SizedBox(
-                            height: hasSelected ? 180 : 350, // ✅ 핵심: 일기 있으면 높이 넉넉히
+                            height: hasSelected ? 180 : 350,
                             width: double.infinity,
                             child: Builder(
                               builder: (_) {
                                 final bool showLoading = _bootLoading || _loadingDay;
-
-
                                 if (showLoading) {
                                   return Center(
                                     child: SizedBox(
                                       width: 22,
                                       height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.2,
-                                        color: _a(gold, 0.75),
-                                      ),
+                                      child: CircularProgressIndicator(strokeWidth: 2.2, color: _strokeStrong),
                                     ),
                                   );
                                 }
 
                                 if (!hasSelected) {
-                                  return _EmptyDayCard(tsBody: _tsBody);
+                                  return _EmptyDayCard(
+                                    stroke: _panelBorder,
+                                    fill: _panelFill,
+                                    inner: _panelInnerStrong,
+                                  );
                                 }
 
                                 return _FolderTabBody(
                                   selectedDay: _selectedDay,
                                   beforeText: before,
                                   afterText: after,
+                                  stroke: _panelBorder,
+                                  strokeSoft: _panelBorderSoft,
+                                  fill: _panelFill,
+                                  inner: _panelInnerStrong,
                                 );
                               },
                             ),
                           ),
-
                         ],
                       ),
                     ),
@@ -874,15 +871,13 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
               ),
             ),
 
-            // ================== ✅ BOTTOM ==================
             BottomBox(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (!hasSelected) ...[
-                    // ✅ 일기 없을 때: "일기 쓰기"만 중앙
                     SizedBox(
-                      width: 160, // 중앙 버튼이라 살짝 넓게
+                      width: 160,
                       child: AppDiaryPillButton(
                         label: '일기 쓰기',
                         icon: Icons.edit_rounded,
@@ -893,7 +888,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                       ),
                     ),
                   ] else ...[
-                    // ✅ 일기 있을 때: "일기 수정" + "일기 삭제"
                     SizedBox(
                       width: 120,
                       child: AppDiaryPillButton(
@@ -911,7 +905,7 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                       child: AppDiaryPillButton(
                         label: '일기 삭제',
                         icon: Icons.close_rounded,
-                        onPressed: _confirmDeleteDialog, // ✅ hasSelected일 때만 렌더되니 null 필요 없음
+                        onPressed: _confirmDeleteDialog,
                         danger: true,
                         height: 40,
                         fontSize: 13.2,
@@ -921,8 +915,6 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
                 ],
               ),
             ),
-
-
           ],
         ),
       ),
@@ -930,9 +922,37 @@ class _CalanderDiaryPageState extends State<CalanderDiaryPage> {
   }
 }
 
-/// ✅ WriteDiary와 동일한 타이트 아이콘 버튼 (색 강제)
-class _TightIconButton extends StatelessWidget {
+/// ======================= Panel Card (✅ modern: no cream, no blur, just soft shadow) =======================
+class _PanelCard extends StatelessWidget {
+  final Widget child;
+  final Color fill;
+  final Color border;
 
+  const _PanelCard({
+    required this.child,
+    required this.fill,
+    required this.border,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: glassPanelDecoration(
+        radius: 18,
+        fill: fill,
+        border: border,
+        shadow: true,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: child,
+      ),
+    );
+  }
+}
+
+/// ✅ WriteDiary와 동일한 타이트 아이콘 버튼
+class _TightIconButton extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
@@ -1024,134 +1044,110 @@ class _Weekday extends StatelessWidget {
   }
 }
 
-/// ======================= 유리 카드 =======================
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final Color bg;
-  final Color border;
+/// ======================= Empty Day =======================
+/// ======================= Empty Day =======================
+class _EmptyDayCard extends StatelessWidget {
+  final Color stroke;
+  final Color fill;
+  final Color inner;
 
-  const _GlassCard({
-    required this.child,
-    required this.bg,
-    required this.border,
+  const _EmptyDayCard({
+    required this.stroke,
+    required this.fill,
+    required this.inner,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: _a(Colors.black, 0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: child,
-      ),
-    );
-  }
-}
-
-/// ======================= Empty Day =======================
-class _EmptyDayCard extends StatelessWidget {
-  final TextStyle tsBody;
-
-  const _EmptyDayCard({required this.tsBody});
-
-  @override
-  Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
     final tPrimary = AppTheme.tPrimary;
-    final tSecondary = AppTheme.tSecondary;
     final tMuted = AppTheme.tMuted;
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 240), // ✅ 여기 숫자만 조절하면 됨
-      child: _GlassCard(
-        bg: _a(Colors.white, 0.04),
-        border: _a(gold, 0.18),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.max, // ✅ minHeight 채우기
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _a(Colors.white, 0.05),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _a(gold, 0.18), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.auto_awesome_rounded, size: 14, color: _a(gold, 0.85)),
-                    const SizedBox(width: 6),
-                    Text(
-                      '오늘의 기록',
-                      style: GoogleFonts.gowunDodum(
-                        color: _a(tSecondary, 0.85),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800,
-                        height: 1.0,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                '아직 기록이 없어요',
-                style: GoogleFonts.gowunDodum(
-                  color: _a(tPrimary, 0.92),
-                  fontSize: 13.2,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '카드를 뽑고 한 줄만 적어도 충분해요.',
-                style: GoogleFonts.gowunDodum(
-                  color: _a(tMuted, 0.92),
-                  fontSize: 11.8,
-                  fontWeight: FontWeight.w700,
-                  height: 1.45,
-                ),
-              ),
+    return _PanelCard(
+      fill: fill,
+      border: stroke,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 6), // ✅ (1) 칩 위 여백 살짝 추가
 
-              // ✅ Spacer 대신 아래로 밀어내는 안전한 방법
-              const SizedBox(height: 18),
-            ],
-          ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: inner,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: _a(AppTheme.headerInk, 0.10), width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ✅ (2) 아이콘 제거
+                  Text(
+                    '오늘의 기록',
+                    style: GoogleFonts.gowunDodum(
+                      color: _a(AppTheme.tSecondary, 0.82), // 살짝 톤다운
+                      fontSize: 11.4,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 22), // ✅ (4) 칩과 본문 사이 여백 늘림 (기존 18)
+
+            Text(
+              '아직 기록이 없어요',
+              style: GoogleFonts.gowunDodum(
+                color: _a(tPrimary, 0.80), // ✅ (3) 덜 쨍하게 (기존 0.86)
+                fontSize: 13.0,
+                fontWeight: FontWeight.w900,
+                height: 1.15,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              '카드를 뽑고 한 줄만 적어도 충분해요.',
+              style: GoogleFonts.gowunDodum(
+                color: _a(tMuted, 0.70), // 살짝 더 부드럽게
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+          ],
         ),
       ),
     );
-
   }
 }
 
-/// ======================= 폴더 탭 (Before/After) =======================
+/// ======================= Folder Tabs =======================
 enum _FolderTabKind { before, after }
 
 class _FolderTabBody extends StatefulWidget {
-
   final DateTime selectedDay;
   final String beforeText;
   final String afterText;
+
+  final Color stroke;
+  final Color strokeSoft;
+
+  final Color fill;
+  final Color inner;
 
   const _FolderTabBody({
     required this.selectedDay,
     required this.beforeText,
     required this.afterText,
+    required this.stroke,
+    required this.strokeSoft,
+    required this.fill,
+    required this.inner,
   });
 
   @override
@@ -1161,11 +1157,9 @@ class _FolderTabBody extends StatefulWidget {
 class _FolderTabBodyState extends State<_FolderTabBody> {
   _FolderTabKind _tab = _FolderTabKind.before;
 
-  // ✅ 스크롤 컨트롤러
   final ScrollController _beforeSc = ScrollController();
   final ScrollController _afterSc = ScrollController();
 
-  // ✅ dispose
   @override
   void dispose() {
     _beforeSc.dispose();
@@ -1187,9 +1181,13 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        backgroundColor: AppTheme.panelFill,
         content: Text(
           '실제 하루는 다음날부터 열려요.',
-          style: GoogleFonts.gowunDodum(fontWeight: FontWeight.w700),
+          style: GoogleFonts.gowunDodum(
+            fontWeight: FontWeight.w700,
+            color: _a(AppTheme.tPrimary, 0.92),
+          ),
         ),
         duration: const Duration(milliseconds: 1200),
       ),
@@ -1198,11 +1196,7 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
-    if (!_afterUnlocked && _tab == _FolderTabKind.after) {
-      _tab = _FolderTabKind.before;
-    }
+    if (!_afterUnlocked && _tab == _FolderTabKind.after) _tab = _FolderTabKind.before;
 
     final bool isBefore = _tab == _FolderTabKind.before;
     final bool isAfter = _tab == _FolderTabKind.after;
@@ -1217,22 +1211,20 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
     }
 
     final bodyStyle = AppTheme.diaryText;
-    final frameBorder = _a(gold, 0.16);
 
-    return _GlassCard(
-      bg: _a(Colors.white, 0.045),
-      border: frameBorder,
+    return _PanelCard(
+      fill: widget.fill,
+      border: widget.stroke,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         child: Column(
           children: [
-            // ===== 탭 =====
             Container(
               height: 34,
               decoration: BoxDecoration(
-                color: Colors.transparent,
+                color: widget.inner,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _a(gold, 0.12), width: 1),
+                border: Border.all(color: widget.strokeSoft, width: 1),
               ),
               child: Row(
                 children: [
@@ -1243,73 +1235,57 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
                       onTap: () => setState(() => _tab = _FolderTabKind.before),
                       enabled: true,
                       leading: null,
+                      stroke: widget.stroke,
+                      strokeSoft: widget.strokeSoft,
+                      inner: widget.inner,
                     ),
                   ),
-                  Container(width: 1, color: _a(gold, 0.08)),
+                  Container(width: 1, color: widget.strokeSoft),
                   Expanded(
                     child: _SegTab(
                       label: "실제 하루",
                       selected: isAfter,
                       onTap: _onTapAfter,
                       enabled: _afterUnlocked,
-                      leading: _afterUnlocked
-                          ? null
-                          : Icon(Icons.lock_rounded, size: 14, color: _a(AppTheme.tPrimary, 0.55)),
+                      leading: _afterUnlocked ? null : Icon(Icons.lock_rounded, size: 14, color: _a(AppTheme.tPrimary, 0.45)),
+                      stroke: widget.stroke,
+                      strokeSoft: widget.strokeSoft,
+                      inner: widget.inner,
                     ),
                   ),
                 ],
               ),
             ),
-
             const SizedBox(height: 10),
-
-            // ===== 본문 + 스크롤바 (양쪽 탭 공통) =====
             Expanded(
               child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: _a(Colors.white, 0.06),
+                  color: widget.inner,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _a(gold, 0.18), width: 1),
+                  border: Border.all(color: widget.strokeSoft, width: 1),
                 ),
                 child: Padding(
-                  // ✅ 오른쪽 여백 살짝(스크롤바 공간)
                   padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-                  child: ScrollbarTheme(
-                    data: ScrollbarThemeData(
-                      // ✅ 회색 대신 "안 튀는 골드톤"으로
-                      thumbColor: WidgetStateProperty.resolveWith((states) {
-                        final active = states.contains(WidgetState.dragged) ||
-                            states.contains(WidgetState.hovered);
-                        return _a(AppTheme.gold, active ? 0.40 : 0.22);
-                      }),
-                      // ✅ 트랙도 거의 안 보이게
-                      trackColor: WidgetStateProperty.all(_a(Colors.white, 0.02)),
-                      trackBorderColor: WidgetStateProperty.all(Colors.transparent),
-                      radius: const Radius.circular(999),
-                      thickness: WidgetStateProperty.all(3.0),
-                    ),
-                    child: Scrollbar(
+                  child: Scrollbar(
+                    controller: sc,
+                    thumbVisibility: true,
+                    interactive: true,
+                    child: SingleChildScrollView(
                       controller: sc,
-                      thumbVisibility: true,
-                      interactive: true,
-                      child: SingleChildScrollView(
-                        controller: sc,
-                        physics: const ClampingScrollPhysics(),
-                        child: Padding(
-                          // ✅ 라운드 박스라 위/아래 살짝 띄워서 “붕 뜸” 방지
-                          padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
-                          child: Text(
-                            content.isEmpty ? emptyHint() : content,
-                            style: content.isEmpty
-                                ? bodyStyle.copyWith(
-                              color: _a(AppTheme.tMuted, 0.90),
-                              fontSize: 12.4,
-                              fontWeight: FontWeight.w700,
-                              height: 1.5,
-                            )
-                                : bodyStyle,
-                          ),
+                      physics: const ClampingScrollPhysics(),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
+                        child: Text(
+                          content.isEmpty ? emptyHint() : content,
+                          style: content.isEmpty
+                              ? bodyStyle.copyWith(
+                            color: _a(AppTheme.tMuted, 0.92),
+                            fontSize: 12.4,
+                            fontWeight: FontWeight.w700,
+                            height: 1.5,
+                          )
+                              : bodyStyle,
                         ),
                       ),
                     ),
@@ -1322,11 +1298,9 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
       ),
     );
   }
-
 }
 
-
-/// ======================= 세그먼트 탭 =======================
+/// ======================= Seg Tab =======================
 class _SegTab extends StatelessWidget {
   final String label;
   final bool selected;
@@ -1334,42 +1308,39 @@ class _SegTab extends StatelessWidget {
   final bool enabled;
   final Widget? leading;
 
+  final Color stroke;
+  final Color strokeSoft;
+  final Color inner;
+
   const _SegTab({
     required this.label,
     required this.selected,
     required this.onTap,
     this.enabled = true,
     this.leading,
+    required this.stroke,
+    required this.strokeSoft,
+    required this.inner,
   });
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
     final tPrimary = AppTheme.tPrimary;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        splashColor: enabled ? _a(gold, 0.12) : Colors.transparent,
-        highlightColor: enabled ? _a(gold, 0.06) : Colors.transparent,
+        splashColor: enabled ? _a(AppTheme.accent, 0.12) : Colors.transparent,
+        highlightColor: enabled ? _a(AppTheme.accent, 0.06) : Colors.transparent,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           curve: Curves.easeOut,
           height: 26,
           decoration: BoxDecoration(
-            color: selected ? _a(gold, 0.10) : Colors.transparent,
+            color: selected ? _a(AppTheme.accent, 0.10) : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
-            border: selected ? Border.all(color: _a(gold, 0.20), width: 1) : null,
-            boxShadow: selected
-                ? [
-              BoxShadow(
-                color: _a(gold, 0.14),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ]
-                : null,
+            border: selected ? Border.all(color: strokeSoft, width: 1) : null,
           ),
           child: Center(
             child: Row(
@@ -1382,9 +1353,7 @@ class _SegTab extends StatelessWidget {
                 Text(
                   label,
                   style: GoogleFonts.gowunDodum(
-                    color: enabled
-                        ? (selected ? _a(tPrimary, 0.88) : _a(tPrimary, 0.48))
-                        : _a(tPrimary, 0.42),
+                    color: enabled ? (selected ? _a(tPrimary, 0.92) : _a(tPrimary, 0.62)) : _a(tPrimary, 0.44),
                     fontSize: 12.6,
                     fontWeight: FontWeight.w900,
                     height: 1.0,
@@ -1402,12 +1371,12 @@ class _SegTab extends StatelessWidget {
 
 class _ViewModeSwitchButton extends StatelessWidget {
   final VoidCallback onTap;
+  final Color stroke;
 
-  const _ViewModeSwitchButton({required this.onTap});
+  const _ViewModeSwitchButton({required this.onTap, required this.stroke});
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
     final tPrimary = AppTheme.tPrimary;
 
     return Tooltip(
@@ -1419,24 +1388,24 @@ class _ViewModeSwitchButton extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          splashColor: _a(gold, 0.14),
-          highlightColor: _a(gold, 0.08),
+          splashColor: _a(AppTheme.accent, 0.12),
+          highlightColor: _a(AppTheme.accent, 0.06),
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: _a(Colors.white, 0.05),
+              color: AppTheme.calendarBg,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _a(gold, 0.22), width: 1),
+              border: Border.all(color: stroke, width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.view_list_rounded, size: 16, color: _a(tPrimary, 0.86)),
+                Icon(Icons.view_list_rounded, size: 16, color: _a(tPrimary, 0.88)),
                 const SizedBox(width: 6),
                 Text(
                   '리스트',
                   style: GoogleFonts.gowunDodum(
-                    color: _a(tPrimary, 0.86),
+                    color: _a(tPrimary, 0.88),
                     fontSize: 12.2,
                     fontWeight: FontWeight.w900,
                     height: 1.0,
