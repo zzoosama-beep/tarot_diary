@@ -25,8 +25,6 @@ import '../backend/device_id_service.dart';
 import '../backend/dalnyang_api.dart';
 import '../error/app_error_handler.dart';
 
-
-
 // ✅ withOpacity 대체(프로젝트 공용 패턴)
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
@@ -42,17 +40,62 @@ class WriteArcanaPage extends StatefulWidget {
   State<WriteArcanaPage> createState() => _WriteArcanaPageState();
 }
 
-
 class _WriteArcanaPageState extends State<WriteArcanaPage> {
-  // ================== UI ==================
-  late final TextStyle _tsTitle = GoogleFonts.gowunDodum(
+  // =========================================================
+  // ✅ write_diary_one 톤 컬러셋 (이 파일 전용)
+  // =========================================================
+  Color get _bg => AppTheme.bgColor;
+  Color get _ink => _a(AppTheme.homeInkWarm, 0.94);
+  Color get _inkDim => _a(AppTheme.homeInkWarm, 0.70);
+
+  // 플랫 패널 (글라스/그라데이션 제거)
+  Color get _panel => _a(Colors.black, 0.08);
+  Color get _panelStrong => _a(Colors.black, 0.11);
+
+  Color get _border => _a(AppTheme.headerInk, 0.14);
+  Color get _borderSoft => _a(AppTheme.headerInk, 0.10);
+
+  // 입력 필드
+  Color get _field => _a(Colors.black, 0.10);
+  Color get _fieldBorder => _a(AppTheme.headerInk, 0.12);
+
+  // 그림자: 한 겹만, 약하게 (list_arcana 톤)
+  List<BoxShadow> get _shadowSoft => [
+    BoxShadow(
+      color: _a(Colors.black, 0.10),
+      blurRadius: 10,
+      offset: const Offset(0, 6),
+      spreadRadius: -6,
+    ),
+  ];
+
+  // =========================================================
+  // ✅ Typography
+  // =========================================================
+  late final TextStyle _tsTitle = AppTheme.title.copyWith(
     fontSize: 16.5,
     fontWeight: FontWeight.w900,
-    color: AppTheme.headerInk,
+    color: _a(AppTheme.homeInkWarm, 0.96),
     letterSpacing: -0.2,
   );
 
-  // ================== STATE ==================
+  TextStyle get _tsCardTitle => GoogleFonts.gowunDodum(
+    fontSize: 16.4,
+    fontWeight: FontWeight.w900,
+    color: _ink,
+    letterSpacing: -0.2,
+  );
+
+  TextStyle get _tsSub => GoogleFonts.gowunDodum(
+    fontSize: 12.6,
+    fontWeight: FontWeight.w700,
+    color: _a(AppTheme.homeInkWarm, 0.82),
+    height: 1.2,
+  );
+
+  // =========================================================
+  // STATE
+  // =========================================================
   ArcanaGroup _group = ArcanaGroup.major;
   MinorSuit _suit = MinorSuit.wands;
 
@@ -62,7 +105,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   final TextEditingController _myNoteC = TextEditingController();
   final TextEditingController _tagsC = TextEditingController();
 
-  // ================== DATA (카드 메타는 항상 78장) ==================
+  // DATA (카드 메타는 항상 78장)
   late final List<_ArcanaCard> _allCards = _buildAllCards();
 
   // 접힘, 펼치기
@@ -75,6 +118,16 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
   bool get _canAskArcana => _selectedCard != null && !_askingArcana;
 
+  // =========================================================
+  // ✅ 상세에서 좌/우 스와이프로 카드 넘기기 (78장이어도 OK)
+  // - 핵심: PageView로 78장 전체를 "순차 탐색"시키지 않고
+  //         상세에서 옆 카드만 편하게 넘기는 용도(보조 이동)로 사용
+  // - 구현: 단일 에디터 + 드래그 제스처로 id만 변경 (컨트롤러 공유 문제 방지)
+  // - 안전: 카드 바꿀 때마다 현재 입력을 draft cache에 저장
+  // =========================================================
+  final Map<int, _ArcanaDraft> _draftById = {};
+  bool _isDragging = false;
+
   @override
   void initState() {
     super.initState();
@@ -85,21 +138,19 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         _openPickDialogOrRoute();
       });
     } else {
-      // ✅ 특정 카드 편집 케이스
+      // ✅ 특정 카드 편집 케이스 (상세 진입 → 좌우 스와이프 가능)
       final id = widget.cardId!;
-      _selectedId = id; // ✅ 먼저 선택 상태로 잡아주고
+      _selectedId = id; // ✅ 먼저 선택 상태
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _loadExistingNoteIfAny(id); // ✅ 기존 저장 데이터 로드
-        if (mounted) setState(() {});     // ✅ 화면 갱신
+        await _applyDraftOrLoad(id);
+        if (mounted) setState(() {});
       });
     }
   }
 
-
   void _openPickDialogOrRoute() {
     Navigator.of(context).pushReplacementNamed('/list_arcana');
   }
-
 
   // =========================================================
   // ✅ ArcanaLabels 기반: 카드명(ko/en) 생성 (로컬 선언 금지)
@@ -193,6 +244,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         _meaningC.selection = TextSelection.collapsed(offset: _meaningC.text.length);
       });
 
+      _stashDraft(); // ✅ 스와이프 대비: 즉시 draft 반영
       _toast('기본 의미에 달냥이 답을 붙였어!');
     } catch (e) {
       await handleDalnyangError(context, e);
@@ -218,10 +270,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
     final cards = <_ArcanaCard>[];
     for (int i = 0; i < names.length; i++) {
       final file = names[i];
-
-      // ✅ cardId는 리스트 index(0~77)로 통일 (파일 앞 2자리도 결국 0~77)
-      final id = i;
-
+      final id = i; // ✅ 0~77 통일
       final path = 'asset/cards/$file';
       final isMajor = id <= 21;
       final suit = isMajor ? MinorSuit.unknown : _guessSuitFromFilename(file);
@@ -229,7 +278,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       cards.add(_ArcanaCard(
         id: id,
         assetPath: path,
-        title: ArcanaLabels.prettyEnTitleFromFilename(file), // ✅ 영문 제목
+        title: ArcanaLabels.prettyEnTitleFromFilename(file),
         isMajor: isMajor,
         suit: suit,
       ));
@@ -314,6 +363,64 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   }
 
   // =========================================================
+  // ✅ draft cache (스와이프/이동 시 입력 보존)
+  // =========================================================
+  void _stashDraft() {
+    final id = _selectedId;
+    if (id == null) return;
+    _draftById[id] = _ArcanaDraft(
+      meaning: _meaningC.text,
+      myNote: _myNoteC.text,
+      tags: _tagsC.text,
+    );
+  }
+
+  void _applyDraft(int id, _ArcanaDraft d) {
+    _meaningC.text = d.meaning;
+    _myNoteC.text = d.myNote;
+    _tagsC.text = d.tags;
+  }
+
+  Future<void> _applyDraftOrLoad(int id) async {
+    // 1) draft 있으면 draft 우선
+    final draft = _draftById[id];
+    if (draft != null) {
+      _applyDraft(id, draft);
+      return;
+    }
+
+    // 2) 없으면 DB load
+    await _loadExistingNoteIfAny(id);
+
+    // 3) 그리고 현재 상태를 draft로 한번 저장(뒤로 갔다 다시 와도 빠르게)
+    _stashDraft();
+  }
+
+  Future<void> _goToCard(int nextId, {bool fromSwipe = false}) async {
+    if (nextId < 0 || nextId >= _allCards.length) return;
+
+    // ✅ 드래그 중 중복 호출 방지
+    if (_isDragging && !fromSwipe) return;
+
+    // ✅ 현재 입력을 먼저 보존
+    _stashDraft();
+
+    setState(() => _selectedId = nextId);
+
+    // ✅ 그룹/수트 동기화 (피커 표시용)
+    final card = _allCards.firstWhere((c) => c.id == nextId);
+    if (card.isMajor) {
+      _group = ArcanaGroup.major;
+    } else {
+      _group = ArcanaGroup.minor;
+      _suit = card.suit == MinorSuit.unknown ? _suit : card.suit;
+    }
+
+    await _applyDraftOrLoad(nextId);
+    if (mounted) setState(() {});
+  }
+
+  // =========================================================
   // ✅ 카드 선택 시: 기존 저장 데이터 있으면 자동 로드
   // =========================================================
   Future<void> _loadExistingNoteIfAny(int cardId) async {
@@ -327,14 +434,12 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         _meaningC.text = '';
         _myNoteC.text = '';
         _tagsC.text = '';
-        setState(() {});
         return;
       }
 
       _meaningC.text = (data['meaning'] ?? '').toString();
       _myNoteC.text = (data['myNote'] ?? '').toString();
       _tagsC.text = (data['tags'] ?? '').toString();
-      setState(() {});
     } catch (_) {
       // read()가 없거나 실패해도 앱은 정상 동작 (저장만 가능)
     }
@@ -352,7 +457,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       return;
     }
 
-    final id = selected.id; // ✅ 0~77 통일
+    final id = selected.id;
 
     if (!_canSave) {
       _toast('내용을 한 줄이라도 적어줘!');
@@ -368,6 +473,9 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         myNote: _myNoteC.text.trim(),
         tags: _tagsC.text.trim(),
       );
+
+      // ✅ 저장 성공 시 draft도 최신화
+      _stashDraft();
 
       await ArcanaRepo.I.debugDump();
 
@@ -433,21 +541,33 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
     if (pickedId == null) return;
 
-    setState(() {
-      _selectedId = pickedId;
+    await _goToCard(pickedId);
+  }
 
-      final card = _allCards.firstWhere((c) => c.id == pickedId);
-      if (card.isMajor) {
-        _group = ArcanaGroup.major;
-      } else {
-        _group = ArcanaGroup.minor;
-        _suit = card.suit == MinorSuit.unknown ? _suit : card.suit;
-      }
-    });
+  // =========================================================
+  // ✅ Swipe handler (상세에서 좌우로)
+  // =========================================================
+  void _onHorizontalDragEnd(DragEndDetails d) {
+    final id = _selectedId;
+    if (id == null) return;
 
-    final selected = _selectedCard;
-    if (selected != null) {
-      await _loadExistingNoteIfAny(selected.id);
+    final vx = d.primaryVelocity ?? 0.0;
+    // vx > 0 : 오른쪽으로 스와이프(이전 카드)
+    // vx < 0 : 왼쪽으로 스와이프(다음 카드)
+    const threshold = 520.0;
+
+    if (vx.abs() < threshold) return;
+
+    setState(() => _isDragging = true);
+
+    if (vx > 0) {
+      _goToCard(id - 1, fromSwipe: true).whenComplete(() {
+        if (mounted) setState(() => _isDragging = false);
+      });
+    } else {
+      _goToCard(id + 1, fromSwipe: true).whenComplete(() {
+        if (mounted) setState(() => _isDragging = false);
+      });
     }
   }
 
@@ -457,10 +577,10 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   @override
   Widget build(BuildContext context) {
     final selected = _selectedCard;
+    final idxText = selected == null ? '' : '${selected.id + 1} / ${_allCards.length}';
 
     return Scaffold(
-      backgroundColor: AppTheme.bgSolid,
-
+      backgroundColor: _bg,
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -480,7 +600,6 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-
       body: SafeArea(
         child: Column(
           children: [
@@ -490,81 +609,154 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
                 offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
                 child: _TightIconButton(
                   icon: Icons.arrow_back_rounded,
-                  color: AppTheme.headerInk,
+                  color: _a(AppTheme.homeInkWarm, 0.95),
                   onTap: () => Navigator.of(context).pop(),
                 ),
               ),
-              title: Text('78장 아르카나 기록', style: _tsTitle),
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('78장 아르카나 기록', style: _tsTitle),
+                  if (idxText.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      idxText,
+                      style: GoogleFonts.gowunDodum(
+                        fontSize: 12.2,
+                        fontWeight: FontWeight.w800,
+                        color: _a(AppTheme.homeInkWarm, 0.66),
+                        height: 1.0,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
               right: const SizedBox.shrink(),
             ),
             const SizedBox(height: 12),
+
             Expanded(
               child: CenterBox(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
-                  child: Column(
-                    children: [
-                      _PickAndSummaryBox(
-                        selected: selected,
-                        onTap: _openPicker,
-                        tagsC: _tagsC,
-                        onTagsChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-
-                      _FieldBox(
-                        title: '기본 의미',
-                        hint: '이 카드가 상징하는 기본 의미를 짧게 적어봐요.',
-                        controller: _meaningC,
-                        isOpen: _meaningOpen,
-                        onToggle: () => setState(() => _meaningOpen = !_meaningOpen),
-                        onChanged: (_) => setState(() {}),
-                        trailing: DallyangAskPill(
-                          enabled: _canAskArcana,
-                          confirmMessage: '광고 1회 시청 후, 선택한 카드의 도감용 의미를 달냥이가 정리해줄게!',
-                          precheckBeforeAd: _precheckRewardBeforeAd,
-                          onReward: () async {
-                            try {
-                              final user = FirebaseAuth.instance.currentUser;
-                              if (user == null) throw DalnyangKnownException('로그인이 필요해!');
-
-                              final idToken = (await user.getIdToken(true)) ?? '';
-                              if (idToken.isEmpty) {
-                                throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-                              }
-
-                              final deviceId = await DeviceIdService.getOrCreate();
-                              final adEventId = '$deviceId-${DateTime.now().millisecondsSinceEpoch}';
-
-                              await DalnyangApi.creditRewardedAd(
-                                idToken: idToken,
-                                deviceId: deviceId,
-                                adEventId: adEventId,
-                              );
-
-                              await _askArcanaFromDallyang();
-                            } catch (e) {
-                              await handleDalnyangError(context, e);
-                            }
+                // ✅ 상세 영역에서 좌/우 스와이프 (단일 에디터 유지)
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onHorizontalDragEnd: _onHorizontalDragEnd,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
+                    child: Column(
+                      children: [
+                        // ✅ 카드 선택 + 요약 + (좌우 버튼)
+                        _PickAndSummaryBox(
+                          selected: selected,
+                          onTap: _openPicker,
+                          onPrev: (selected == null || selected.id <= 0)
+                              ? null
+                              : () => _goToCard(selected.id - 1),
+                          onNext: (selected == null || selected.id >= _allCards.length - 1)
+                              ? null
+                              : () => _goToCard(selected.id + 1),
+                          tagsC: _tagsC,
+                          onTagsChanged: (_) {
+                            setState(() {});
+                            _stashDraft();
                           },
-                          onDisabledTap: () {
-                            if (_selectedCard == null) _toast('카드를 먼저 선택해줘!');
-                            if (_askingArcana) _toast('달냥이가 정리 중이야…');
-                          },
-                          onNotReady: () => _toast('광고 준비 중이야. 잠깐만 다시 눌러줘!'),
+                          panel: _panelStrong,
+                          panelWeak: _panel,
+                          border: _border,
+                          borderSoft: _borderSoft,
+                          shadow: _shadowSoft,
+                          ink: _ink,
+                          inkDim: _inkDim,
+                          field: _field,
+                          fieldBorder: _fieldBorder,
                         ),
-                      ),
+                        const SizedBox(height: 12),
 
-                      const SizedBox(height: 12),
-                      _FieldBox(
-                        title: '나의 해석 / 경험',
-                        hint: '내 기준으로 이 카드가 어떤 의미였는지 기록해요.',
-                        controller: _myNoteC,
-                        isOpen: _myNoteOpen,
-                        onToggle: () => setState(() => _myNoteOpen = !_myNoteOpen),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ],
+                        _FieldBox(
+                          title: '기본 의미',
+                          hint: '이 카드가 상징하는 기본 의미를 짧게 적어봐요.',
+                          controller: _meaningC,
+                          isOpen: _meaningOpen,
+                          onToggle: () => setState(() => _meaningOpen = !_meaningOpen),
+                          onChanged: (_) {
+                            setState(() {});
+                            _stashDraft();
+                          },
+                          trailing: DallyangAskPill(
+                            enabled: _canAskArcana,
+                            confirmMessage: '광고 1회 시청 후, 선택한 카드의 도감용 의미를 달냥이가 정리해줄게!',
+                            precheckBeforeAd: _precheckRewardBeforeAd,
+                            onReward: () async {
+                              try {
+                                final user = FirebaseAuth.instance.currentUser;
+                                if (user == null) {
+                                  throw DalnyangKnownException('로그인이 필요해!');
+                                }
+
+                                final idToken = (await user.getIdToken(true)) ?? '';
+                                if (idToken.isEmpty) {
+                                  throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
+                                }
+
+                                final deviceId = await DeviceIdService.getOrCreate();
+                                final adEventId = '$deviceId-${DateTime.now().millisecondsSinceEpoch}';
+
+                                await DalnyangApi.creditRewardedAd(
+                                  idToken: idToken,
+                                  deviceId: deviceId,
+                                  adEventId: adEventId,
+                                );
+
+                                await _askArcanaFromDallyang();
+                              } catch (e) {
+                                await handleDalnyangError(context, e);
+                              }
+                            },
+                            onDisabledTap: () {
+                              if (_selectedCard == null) _toast('카드를 먼저 선택해줘!');
+                              if (_askingArcana) _toast('달냥이가 정리 중이야…');
+                            },
+                            onNotReady: () => _toast('광고 준비 중이야. 잠깐만 다시 눌러줘!'),
+                          ),
+                          // ✅ 톤 적용
+                          panel: _panel,
+                          border: _border,
+                          shadow: _shadowSoft,
+                          ink: _ink,
+                          inkDim: _inkDim,
+                          chipFill: _a(Colors.black, 0.10),
+                          chipBorder: _border,
+                          chipText: _a(AppTheme.homeInkWarm, 0.90),
+                          fieldFill: _field,
+                          fieldBorder: _fieldBorder,
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        _FieldBox(
+                          title: '나의 해석 / 경험',
+                          hint: '내 기준으로 이 카드가 어떤 의미였는지 기록해요.',
+                          controller: _myNoteC,
+                          isOpen: _myNoteOpen,
+                          onToggle: () => setState(() => _myNoteOpen = !_myNoteOpen),
+                          onChanged: (_) {
+                            setState(() {});
+                            _stashDraft();
+                          },
+                          // ✅ 톤 적용
+                          panel: _panel,
+                          border: _border,
+                          shadow: _shadowSoft,
+                          ink: _ink,
+                          inkDim: _inkDim,
+                          chipFill: _a(Colors.black, 0.10),
+                          chipBorder: _border,
+                          chipText: _a(AppTheme.homeInkWarm, 0.90),
+                          fieldFill: _field,
+                          fieldBorder: _fieldBorder,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -593,14 +785,17 @@ class _TightIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 22, color: color),
+    return InkResponse(
+      onTap: onTap,
+      radius: 22,
+      splashColor: AppTheme.inkSplash,
+      highlightColor: AppTheme.inkHighlight,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Icon(icon, size: 24, color: color),
         ),
       ),
     );
@@ -623,18 +818,56 @@ class _ArcanaCard {
   });
 }
 
+class _ArcanaDraft {
+  final String meaning;
+  final String myNote;
+  final String tags;
+
+  const _ArcanaDraft({
+    required this.meaning,
+    required this.myNote,
+    required this.tags,
+  });
+}
+
 class _PickAndSummaryBox extends StatelessWidget {
   final _ArcanaCard? selected;
   final VoidCallback onTap;
 
+  // ✅ 좌/우 이동 버튼(상세에서 보조 이동)
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+
   final TextEditingController tagsC;
   final ValueChanged<String> onTagsChanged;
+
+  // ✅ 톤 주입
+  final Color panel;
+  final Color panelWeak;
+  final Color border;
+  final Color borderSoft;
+  final List<BoxShadow> shadow;
+  final Color ink;
+  final Color inkDim;
+  final Color field;
+  final Color fieldBorder;
 
   const _PickAndSummaryBox({
     required this.selected,
     required this.onTap,
+    required this.onPrev,
+    required this.onNext,
     required this.tagsC,
     required this.onTagsChanged,
+    required this.panel,
+    required this.panelWeak,
+    required this.border,
+    required this.borderSoft,
+    required this.shadow,
+    required this.ink,
+    required this.inkDim,
+    required this.field,
+    required this.fieldBorder,
   });
 
   @override
@@ -654,26 +887,22 @@ class _PickAndSummaryBox extends StatelessWidget {
       return koMinor;
     }
 
+    final titleColor = has ? ink : inkDim;
+
     return Material(
       color: Colors.transparent,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: _a(Colors.black, 0.22),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
+          boxShadow: shadow,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Container(
             decoration: BoxDecoration(
-              color: _a(AppTheme.panelFill, 0.34),
+              color: has ? panel : panelWeak,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
+              border: Border.all(color: has ? border : borderSoft, width: 1),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -683,6 +912,15 @@ class _PickAndSummaryBox extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
+                      // ✅ 좌/우 버튼 (카드가 있을 때만 의미 있음)
+                      if (has) ...[
+                        _NavMiniBtn(
+                          icon: Icons.chevron_left_rounded,
+                          enabled: onPrev != null,
+                          onTap: onPrev,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -692,9 +930,9 @@ class _PickAndSummaryBox extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.gowunDodum(
-                                fontSize: 17.0,
+                                fontSize: 16.8,
                                 fontWeight: FontWeight.w900,
-                                color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.85),
+                                color: titleColor,
                                 letterSpacing: -0.2,
                               ),
                             ),
@@ -706,7 +944,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                               style: GoogleFonts.gowunDodum(
                                 fontSize: 12.6,
                                 fontWeight: FontWeight.w700,
-                                color: _a(AppTheme.tSecondary, 0.85),
+                                color: _a(AppTheme.homeInkWarm, 0.78),
                               ),
                             ),
                           ],
@@ -717,12 +955,15 @@ class _PickAndSummaryBox extends StatelessWidget {
                         onTap: onTap,
                         borderRadius: BorderRadius.circular(999),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
-                            color: has ? _a(AppTheme.gold, 0.14) : _a(AppTheme.panelFill, 0.28),
+                            color: _a(Colors.black, has ? 0.10 : 0.08),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
-                              color: has ? _a(AppTheme.gold, 0.40) : _a(AppTheme.gold, 0.16),
+                              color: _a(AppTheme.headerInk, has ? 0.18 : 0.14),
                               width: 1,
                             ),
                           ),
@@ -732,7 +973,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                               Icon(
                                 has ? Icons.autorenew_rounded : Icons.add_rounded,
                                 size: 16,
-                                color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.78),
+                                color: _a(AppTheme.homeInkWarm, has ? 0.90 : 0.76),
                               ),
                               const SizedBox(width: 6),
                               Text(
@@ -740,7 +981,7 @@ class _PickAndSummaryBox extends StatelessWidget {
                                 style: GoogleFonts.gowunDodum(
                                   fontSize: 12.4,
                                   fontWeight: FontWeight.w900,
-                                  color: has ? _a(AppTheme.gold, 0.95) : _a(AppTheme.tSecondary, 0.78),
+                                  color: _a(AppTheme.homeInkWarm, has ? 0.92 : 0.80),
                                   height: 1.0,
                                 ),
                               ),
@@ -748,13 +989,21 @@ class _PickAndSummaryBox extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (has) ...[
+                        const SizedBox(width: 10),
+                        _NavMiniBtn(
+                          icon: Icons.chevron_right_rounded,
+                          enabled: onNext != null,
+                          onTap: onNext,
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 Container(
                   height: 1,
                   margin: const EdgeInsets.symmetric(horizontal: 10),
-                  color: _a(AppTheme.gold, 0.10),
+                  color: _a(AppTheme.headerInk, 0.10),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -762,6 +1011,10 @@ class _PickAndSummaryBox extends StatelessWidget {
                     card: selected,
                     tagsC: tagsC,
                     onTagsChanged: onTagsChanged,
+                    field: field,
+                    fieldBorder: fieldBorder,
+                    ink: ink,
+                    inkDim: inkDim,
                   ),
                 ),
               ],
@@ -773,15 +1026,60 @@ class _PickAndSummaryBox extends StatelessWidget {
   }
 }
 
+class _NavMiniBtn extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  const _NavMiniBtn({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = enabled ? _a(AppTheme.homeInkWarm, 0.88) : _a(AppTheme.homeInkWarm, 0.35);
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _a(Colors.black, enabled ? 0.10 : 0.06),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: _a(AppTheme.headerInk, enabled ? 0.16 : 0.10),
+            width: 1,
+          ),
+        ),
+        child: Icon(icon, size: 22, color: c),
+      ),
+    );
+  }
+}
+
 class _SelectedSummaryInner extends StatelessWidget {
   final _ArcanaCard? card;
   final TextEditingController tagsC;
   final ValueChanged<String> onTagsChanged;
 
+  // ✅ 톤 주입
+  final Color field;
+  final Color fieldBorder;
+  final Color ink;
+  final Color inkDim;
+
   const _SelectedSummaryInner({
     required this.card,
     required this.tagsC,
     required this.onTagsChanged,
+    required this.field,
+    required this.fieldBorder,
+    required this.ink,
+    required this.inkDim,
   });
 
   @override
@@ -792,7 +1090,7 @@ class _SelectedSummaryInner extends StatelessWidget {
         style: GoogleFonts.gowunDodum(
           fontSize: 12.6,
           fontWeight: FontWeight.w800,
-          color: _a(AppTheme.tSecondary, 0.92),
+          color: _a(AppTheme.homeInkWarm, 0.82),
         ),
       );
     }
@@ -840,7 +1138,7 @@ class _SelectedSummaryInner extends StatelessWidget {
               style: GoogleFonts.gowunDodum(
                 fontSize: 13.6,
                 fontWeight: FontWeight.w700,
-                color: _a(AppTheme.tPrimary, 0.95),
+                color: _a(AppTheme.homeInkWarm, 0.92),
                 height: 1.25,
               ),
               decoration: InputDecoration(
@@ -848,24 +1146,24 @@ class _SelectedSummaryInner extends StatelessWidget {
                 hintStyle: GoogleFonts.gowunDodum(
                   fontSize: 13.0,
                   fontWeight: FontWeight.w600,
-                  color: _a(AppTheme.tSecondary, 0.75),
+                  color: _a(AppTheme.homeInkWarm, 0.62),
                   height: 1.2,
                 ),
                 isDense: true,
                 contentPadding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
                 filled: true,
-                fillColor: _a(AppTheme.panelFill, 0.40),
+                fillColor: field,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
+                  borderSide: BorderSide(color: fieldBorder, width: 1),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.16), width: 1),
+                  borderSide: BorderSide(color: fieldBorder, width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: _a(AppTheme.gold, 0.26), width: 1),
+                  borderSide: BorderSide(color: _a(AppTheme.headerInk, 0.20), width: 1),
                 ),
               ),
             ),
@@ -887,6 +1185,20 @@ class _FieldBox extends StatelessWidget {
   // ✅ 우측 trailing (달냥이에게 물어보기 등)
   final Widget? trailing;
 
+  // ✅ 톤 주입
+  final Color panel;
+  final Color border;
+  final List<BoxShadow> shadow;
+  final Color ink;
+  final Color inkDim;
+
+  final Color chipFill;
+  final Color chipBorder;
+  final Color chipText;
+
+  final Color fieldFill;
+  final Color fieldBorder;
+
   const _FieldBox({
     required this.title,
     required this.hint,
@@ -895,6 +1207,16 @@ class _FieldBox extends StatelessWidget {
     required this.onToggle,
     required this.onChanged,
     this.trailing,
+    required this.panel,
+    required this.border,
+    required this.shadow,
+    required this.ink,
+    required this.inkDim,
+    required this.chipFill,
+    required this.chipBorder,
+    required this.chipText,
+    required this.fieldFill,
+    required this.fieldBorder,
   });
 
   @override
@@ -902,28 +1224,22 @@ class _FieldBox extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _a(Colors.black, 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        boxShadow: shadow,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
-            color: _a(AppTheme.panelFill, 0.24),
+            color: panel,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _a(AppTheme.gold, 0.16), width: 1),
+            border: Border.all(color: border, width: 1),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ✅ 헤더: 토글 영역과 trailing 클릭 영역 분리
+                // 헤더: 토글 영역과 trailing 클릭 영역 분리
                 Row(
                   children: [
                     InkWell(
@@ -934,16 +1250,16 @@ class _FieldBox extends StatelessWidget {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: _a(AppTheme.gold, 0.12),
+                            color: chipFill,
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: _a(AppTheme.gold, 0.26), width: 1),
+                            border: Border.all(color: chipBorder, width: 1),
                           ),
                           child: Text(
                             title,
                             style: GoogleFonts.gowunDodum(
                               fontSize: 12.8,
                               fontWeight: FontWeight.w900,
-                              color: _a(AppTheme.gold, 0.92),
+                              color: chipText,
                               height: 1.0,
                             ),
                           ),
@@ -961,13 +1277,12 @@ class _FieldBox extends StatelessWidget {
                         child: Icon(
                           isOpen ? Icons.expand_less_rounded : Icons.expand_more_rounded,
                           size: 22,
-                          color: _a(AppTheme.tSecondary, 0.75),
+                          color: _a(AppTheme.homeInkWarm, 0.66),
                         ),
                       ),
                     ),
                   ],
                 ),
-
                 if (isOpen) ...[
                   const SizedBox(height: 10),
                   TextField(
@@ -978,7 +1293,7 @@ class _FieldBox extends StatelessWidget {
                     style: GoogleFonts.gowunDodum(
                       fontSize: 13.2,
                       fontWeight: FontWeight.w700,
-                      color: _a(AppTheme.tPrimary, 0.92),
+                      color: _a(AppTheme.homeInkWarm, 0.92),
                       height: 1.35,
                     ),
                     decoration: InputDecoration(
@@ -986,24 +1301,24 @@ class _FieldBox extends StatelessWidget {
                       hintStyle: GoogleFonts.gowunDodum(
                         fontSize: 12.8,
                         fontWeight: FontWeight.w600,
-                        color: _a(AppTheme.tSecondary, 0.72),
+                        color: _a(AppTheme.homeInkWarm, 0.62),
                         height: 1.35,
                       ),
                       filled: true,
-                      fillColor: _a(AppTheme.panelFill, 0.58),
+                      fillColor: fieldFill,
                       isDense: true,
                       contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.18), width: 1),
+                        borderSide: BorderSide(color: fieldBorder, width: 1),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.18), width: 1),
+                        borderSide: BorderSide(color: fieldBorder, width: 1),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _a(AppTheme.gold, 0.32), width: 1),
+                        borderSide: BorderSide(color: _a(AppTheme.headerInk, 0.20), width: 1),
                       ),
                     ),
                   ),

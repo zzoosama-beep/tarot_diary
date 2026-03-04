@@ -1219,41 +1219,46 @@ class _FolderTabBodyState extends State<_FolderTabBody> {
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         child: Column(
           children: [
-            Container(
-              height: 34,
-              decoration: BoxDecoration(
-                color: widget.inner,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: widget.strokeSoft, width: 1),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _SegTab(
-                      label: "나의 예상",
-                      selected: isBefore,
-                      onTap: () => setState(() => _tab = _FolderTabKind.before),
-                      enabled: true,
-                      leading: null,
-                      stroke: widget.stroke,
-                      strokeSoft: widget.strokeSoft,
-                      inner: widget.inner,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                height: 36, // ✅ 34→36 (여유 조금)
+                decoration: BoxDecoration(
+                  color: widget.inner,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: widget.strokeSoft, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _SegTab(
+                        label: "나의 예상",
+                        selected: isBefore,
+                        onTap: () => setState(() => _tab = _FolderTabKind.before),
+                        enabled: true,
+                        leading: null,
+                        stroke: widget.stroke,
+                        strokeSoft: widget.strokeSoft,
+                        inner: widget.inner,
+                      ),
                     ),
-                  ),
-                  Container(width: 1, color: widget.strokeSoft),
-                  Expanded(
-                    child: _SegTab(
-                      label: "실제 하루",
-                      selected: isAfter,
-                      onTap: _onTapAfter,
-                      enabled: _afterUnlocked,
-                      leading: _afterUnlocked ? null : Icon(Icons.lock_rounded, size: 14, color: _a(AppTheme.tPrimary, 0.45)),
-                      stroke: widget.stroke,
-                      strokeSoft: widget.strokeSoft,
-                      inner: widget.inner,
+                    // ✅ 가운데 세로줄 삭제
+                    Expanded(
+                      child: _SegTab(
+                        label: "실제 하루",
+                        selected: isAfter,
+                        onTap: _onTapAfter,
+                        enabled: _afterUnlocked,
+                        leading: _afterUnlocked
+                            ? null
+                            : Icon(Icons.lock_rounded, size: 14, color: _a(AppTheme.tPrimary, 0.45)),
+                        stroke: widget.stroke,
+                        strokeSoft: widget.strokeSoft,
+                        inner: widget.inner,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -1336,31 +1341,36 @@ class _SegTab extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           curve: Curves.easeOut,
-          height: 26,
+          margin: const EdgeInsets.all(3), // ✅ 바깥 36 높이랑 맞물리게
           decoration: BoxDecoration(
             color: selected ? _a(AppTheme.accent, 0.10) : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
             border: selected ? Border.all(color: strokeSoft, width: 1) : null,
           ),
           child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (leading != null) ...[
-                  leading!,
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  label,
-                  style: GoogleFonts.gowunDodum(
-                    color: enabled ? (selected ? _a(tPrimary, 0.92) : _a(tPrimary, 0.62)) : _a(tPrimary, 0.44),
-                    fontSize: 12.6,
-                    fontWeight: FontWeight.w900,
-                    height: 1.0,
-                    letterSpacing: selected ? 0.2 : 0.0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10), // ✅ 라벨 폭 안정
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (leading != null) ...[
+                    leading!,
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    label,
+                    style: GoogleFonts.gowunDodum(
+                      color: enabled
+                          ? (selected ? _a(tPrimary, 0.92) : _a(tPrimary, 0.62))
+                          : _a(tPrimary, 0.44),
+                      fontSize: 12.6,
+                      fontWeight: FontWeight.w900,
+                      height: 1.0,
+                      letterSpacing: selected ? 0.2 : 0.0,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

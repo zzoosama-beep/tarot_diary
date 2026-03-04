@@ -1,4 +1,4 @@
-// list_diary.dart
+// lib/diary/list_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../arcana/arcana_labels.dart';
@@ -7,7 +7,7 @@ import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../ui/app_buttons.dart';
 
-import 'calander_diary.dart'; // 캘린더로 전환 (페이드)
+import 'calander_diary.dart';
 import '../backend/diary_repo.dart';
 import 'write_diary.dart';
 import '../main_home_page.dart';
@@ -29,18 +29,15 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   // ===== 월 상태 =====
   late DateTime _focusedMonth;
 
-  // ✅ 카드 접기 상태(날짜별)
-  final Map<String, bool> _cardsExpandedByKey = {};
+  // ✅ 날짜 박스 접힘 상태(날짜별)
+  final Map<String, bool> _rowCollapsedByKey = {};
   String _rowKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
-  // ✅ 월 리스트 데이터
   bool _loading = false;
   List<_DiaryRowModel> _rows = [];
 
-  // ✅ 정렬 토글: true=최신순(내림차순), false=과거순(오름차순)
   bool _sortDesc = true;
 
-  // ✅ 검색 상태: 월 범위 내에서만 필터링
   bool _searchOpen = false;
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
@@ -61,10 +58,7 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
   String _monthLabel(DateTime m) => "${m.year}년 ${m.month}월";
 
-  // ---------------- Search / Sort helpers ----------------
-
-  String _norm(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  String _norm(String s) => s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
 
   List<_DiaryRowModel> _filteredRows(List<_DiaryRowModel> input) {
     final q = _norm(_query);
@@ -90,17 +84,13 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   }
 
   void _applySort(List<_DiaryRowModel> list) {
-    list.sort((a, b) =>
-    _sortDesc
-        ? b.date.compareTo(a.date) // 최신순
-        : a.date.compareTo(b.date) // 과거순
-    );
+    list.sort((a, b) => _sortDesc ? b.date.compareTo(a.date) : a.date.compareTo(b.date));
   }
 
   void _toggleSort() {
     setState(() {
       _sortDesc = !_sortDesc;
-      _applySort(_rows); // 원본 순서도 토글에 맞춰 유지
+      _applySort(_rows);
     });
   }
 
@@ -109,8 +99,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
     _searchCtrl.clear();
     _searchOpen = false;
   }
-
-  // ---------------- Month navigation ----------------
 
   void _prevMonth() {
     setState(() {
@@ -128,7 +116,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
     _loadMonth();
   }
 
-  // ✅ 캘린더로 이동(페이드)
   Future<void> _openCalendarPage() async {
     if (!mounted) return;
     await Navigator.of(context).pushReplacement(
@@ -143,7 +130,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   Future<void> _openWriteFor(DateTime date) async {
     if (!mounted) return;
 
-    // ✅ 리스트에서 보고 있는 날짜로 바로 연결
     final changed = await Navigator.of(context).push(
       _fadeRoute(
         WriteDiaryPage(
@@ -153,14 +139,11 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
       ),
     );
 
-    // ✅ 저장/수정하고 돌아오면 리스트 갱신
     if (changed == true) {
       await _loadMonth();
     }
   }
 
-
-  // ================== ✅ 로컬 DB: 월 데이터 로드 ==================
   Future<void> _loadMonth() async {
     if (_loading) return;
     setState(() => _loading = true);
@@ -184,10 +167,7 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
       final rows = docs.map<_DiaryRowModel>((m) {
         final date = parseDate(m['dateKey'] ?? m['date']);
 
-        final ids = (m['cards'] as List?)
-            ?.map((e) => (e as num).toInt())
-            .toList() ??
-            <int>[];
+        final ids = (m['cards'] as List?)?.map((e) => (e as num).toInt()).toList() ?? <int>[];
 
         final before = (m['beforeText'] ?? '').toString();
         final after = (m['afterText'] ?? '').toString();
@@ -216,14 +196,16 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 월 데이터(_rows) 안에서만 검색 필터 적용
     final rows = _filteredRows(List<_DiaryRowModel>.from(_rows));
-    _applySort(rows); // 검색 결과도 현재 정렬 상태 유지
+    _applySort(rows);
+
+    final bg = AppTheme.bgColor;
+    final panel = AppTheme.panelFill;
+    final panelBorder = AppTheme.panelBorder;
+    final chipBg = AppTheme.calendarBg;
 
     return Scaffold(
-      backgroundColor: AppTheme.bgSolid,
-
-      // ✅ 오른쪽 하단 홈(메인) 버튼
+      backgroundColor: bg,
       floatingActionButton: HomeFloatingButton(
         onPressed: () {
           Navigator.of(context).pushAndRemoveUntil(
@@ -233,7 +215,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
         },
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-
       body: SafeArea(
         child: Column(
           children: [
@@ -243,161 +224,146 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                   0,
                   LayoutTokens.scrollTopPad,
                   0,
-                  LayoutTokens.scrollBottomSpacer +
-                      MediaQuery
-                          .of(context)
-                          .viewInsets
-                          .bottom,
+                  LayoutTokens.scrollBottomSpacer + MediaQuery.of(context).viewInsets.bottom,
                 ),
                 child: Column(
                   children: [
-                    // ================== ✅ 헤더 (TopBox) ==================
                     TopBox(
                       left: Transform.translate(
                         offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
                         child: _TightIconButton(
                           icon: Icons.arrow_back_rounded,
-                          color: AppTheme.headerInk,
+                          color: AppTheme.a(AppTheme.homeInkWarm, 0.96),
                           onTap: () => Navigator.of(context).pop(),
                         ),
                       ),
                       title: Text('내 타로일기 보관함', style: AppTheme.title),
                       right: _CalendarSwitchButton(onTap: _openCalendarPage),
                     ),
-
                     const SizedBox(height: 12),
-
-                    // ================== ✅ CENTER ==================
                     CenterBox(
                       child: Column(
                         children: [
-                          // 1) 월 이동 Row + 우측(검색/정렬) 버튼
+                          // ===== 컨트롤 덩어리: 월이동 + 검색/정렬 + 검색바(조건부) =====
                           _GlassCard(
-                            bg: Colors.white.withOpacity(0.035),
-                            border: AppTheme.panelBorder,
+                            bg: panel,
+                            border: panelBorder,
                             child: Padding(
-                              padding: const EdgeInsets.fromLTRB(4, 10, 12, 10),
-                              child: Row(
+                              padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                              child: Column(
                                 children: [
-                                  const SizedBox(width: 4),
-
-                                  // ✅ 월 이동: 왼쪽으로 붙이기 (오른쪽 검색/정렬은 그대로)
-                                  Expanded(
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Row(
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              _MiniIconButton(
+                                                icon: Icons.chevron_left_rounded,
+                                                onTap: _prevMonth,
+                                                color: AppTheme.a(AppTheme.tSecondary, 0.88),
+                                                splash: AppTheme.inkSplash,
+                                                highlight: AppTheme.inkHighlight,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(_monthLabel(_focusedMonth), style: AppTheme.month),
+                                              const SizedBox(width: 6),
+                                              _MiniIconButton(
+                                                icon: Icons.chevron_right_rounded,
+                                                onTap: _nextMonth,
+                                                color: AppTheme.a(AppTheme.tSecondary, 0.88),
+                                                splash: AppTheme.inkSplash,
+                                                highlight: AppTheme.inkHighlight,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          _MiniIconButton(
-                                            icon: Icons.chevron_left_rounded,
-                                            onTap: _prevMonth,
-                                            color: AppTheme.calInk.withOpacity(
-                                                0.90),
-                                            splash: AppTheme.inkSplash,
-                                            highlight: AppTheme.inkHighlight,
+                                          _TinyGhostChip(
+                                            icon: Icons.search_rounded,
+                                            label: '검색',
+                                            bg: chipBg,
+                                            border: panelBorder,
+                                            onTap: _toggleSearch,
                                           ),
-                                          const SizedBox(width: 6),
-                                          Text(_monthLabel(_focusedMonth),
-                                              style: AppTheme.month),
-                                          const SizedBox(width: 6),
-                                          _MiniIconButton(
-                                            icon: Icons.chevron_right_rounded,
-                                            onTap: _nextMonth,
-                                            color: AppTheme.calInk.withOpacity(
-                                                0.90),
-                                            splash: AppTheme.inkSplash,
-                                            highlight: AppTheme.inkHighlight,
+                                          const SizedBox(width: 8),
+                                          _TinyGhostChip(
+                                            icon: _sortDesc ? Icons.south_rounded : Icons.north_rounded,
+                                            label: '정렬',
+                                            bg: chipBg,
+                                            border: panelBorder,
+                                            onTap: _toggleSort,
                                           ),
                                         ],
                                       ),
-                                    ),
-                                  ),
-
-                                  // 오른쪽: 검색/정렬 (작게)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _TinyGhostChip(
-                                        icon: Icons.search_rounded,
-                                        label: '검색',
-                                        onTap: _toggleSearch,
-                                      ),
-                                      const SizedBox(width: 8),
-
-                                      _TinyGhostChip(
-                                        icon: _sortDesc
-                                            ? Icons.south_rounded
-                                            : Icons.north_rounded,
-                                        label: '정렬',
-                                        onTap: _toggleSort,
-                                      ),
                                     ],
                                   ),
+                                  if (_searchOpen) ...[
+                                    const SizedBox(height: 10),
+                                    Container(height: 1, color: AppTheme.panelBorderSoft),
+                                    const SizedBox(height: 10),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.diaryFieldBg,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: AppTheme.panelBorderSoft, width: 1),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.search_rounded,
+                                            size: 17,
+                                            color: AppTheme.a(AppTheme.tMuted, 0.80),
+                                          ),
+                                          const SizedBox(width: 7),
+                                          Expanded(
+                                            child: TextField(
+                                              controller: _searchCtrl,
+                                              onChanged: (v) => setState(() => _query = v),
+                                              style: GoogleFonts.gowunDodum(
+                                                color: AppTheme.a(AppTheme.tPrimary, 0.92),
+                                                fontSize: 12.6,
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.2,
+                                              ),
+                                              decoration: InputDecoration(
+                                                isDense: true,
+                                                border: InputBorder.none,
+                                                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                                                hintText: '이 달의 기록에서 검색',
+                                                hintStyle: GoogleFonts.gowunDodum(
+                                                  color: AppTheme.a(AppTheme.tMuted, 0.72),
+                                                  fontSize: 12.4,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          if (_query.trim().isNotEmpty)
+                                            _MiniIconButton(
+                                              icon: Icons.close_rounded,
+                                              onTap: _clearSearch,
+                                              color: AppTheme.a(AppTheme.tPrimary, 0.80),
+                                              splash: AppTheme.inkSplash,
+                                              highlight: AppTheme.inkHighlight,
+                                            ),
+                                        ],
+                                      ),
+                                    )
+                                  ],
                                 ],
                               ),
                             ),
                           ),
 
-                          // ✅ 검색바 (월 내 검색)
-                          if (_searchOpen) ...[
-                            const SizedBox(height: 10),
-                            _GlassCard(
-                              bg: Colors.white.withOpacity(0.035),
-                              border: AppTheme.panelBorder,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                    12, 10, 12, 10),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.search_rounded,
-                                        size: 18,
-                                        color: AppTheme.tMuted.withOpacity(
-                                            0.85)),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _searchCtrl,
-                                        onChanged: (v) =>
-                                            setState(() => _query = v),
-                                        style: GoogleFonts.gowunDodum(
-                                          color: AppTheme.tPrimary.withOpacity(
-                                              0.92),
-                                          fontSize: 12.8,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                        decoration: InputDecoration(
-                                          isDense: true,
-                                          border: InputBorder.none,
-                                          hintText: '이 달의 기록에서 검색',
-                                          hintStyle: GoogleFonts.gowunDodum(
-                                            color: AppTheme.tMuted.withOpacity(
-                                                0.70),
-                                            fontSize: 12.4,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    if (_query
-                                        .trim()
-                                        .isNotEmpty)
-                                      _MiniIconButton(
-                                        icon: Icons.close_rounded,
-                                        onTap: _clearSearch,
-                                        color: AppTheme.tPrimary.withOpacity(
-                                            0.80),
-                                        splash: AppTheme.inkSplash,
-                                        highlight: AppTheme.inkHighlight,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                          const SizedBox(height: 12),
 
-                          const SizedBox(height: 10),
-
-                          // 2) 리스트 컨텐츠
                           if (_loading)
                             Padding(
                               padding: const EdgeInsets.only(top: 10),
@@ -407,43 +373,36 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.2,
-                                    color: AppTheme.gold.withOpacity(0.75),
+                                    color: AppTheme.a(AppTheme.accent, 0.80),
                                   ),
                                 ),
                               ),
                             )
+                          else if (rows.isEmpty)
+                            _searchOpen && _query.trim().isNotEmpty ? const _EmptySearchCard() : const _EmptyListCard()
                           else
-                            if (rows.isEmpty)
-                              _searchOpen && _query
-                                  .trim()
-                                  .isNotEmpty
-                                  ? const _EmptySearchCard()
-                                  : const _EmptyListCard()
-                            else
-                              Column(
-                                children: [
-                                  for (int i = 0; i < rows.length; i++) ...[
-                                    Builder(builder: (_) {
-                                      final k = _rowKey(rows[i].date);
-                                      final expanded = _cardsExpandedByKey[k] ?? true;
+                            Column(
+                              children: [
+                                for (int i = 0; i < rows.length; i++) ...[
+                                  Builder(builder: (_) {
+                                    final k = _rowKey(rows[i].date);
+                                    final collapsed = _rowCollapsedByKey[k] ?? false;
 
-                                      return _DiaryListRow(
-                                        model: rows[i],
-                                        onTap: () => _openWriteFor(rows[i].date),
-
-                                        // ✅ 추가
-                                        cardsExpanded: expanded,
-                                        onToggleCards: () {
-                                          setState(() {
-                                            _cardsExpandedByKey[k] = !expanded;
-                                          });
-                                        },
-                                      );
-                                    }),
-                                    const SizedBox(height: 10),
-                                  ]
-                                ],
-                              ),
+                                    return _DiaryListRow(
+                                      model: rows[i],
+                                      onTap: () => _openWriteFor(rows[i].date),
+                                      collapsed: collapsed,
+                                      onToggleCollapsed: () {
+                                        setState(() {
+                                          _rowCollapsedByKey[k] = !collapsed;
+                                        });
+                                      },
+                                    );
+                                  }),
+                                  const SizedBox(height: 10),
+                                ]
+                              ],
+                            ),
                         ],
                       ),
                     ),
@@ -462,11 +421,7 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
 class _DiaryRowModel {
   final DateTime date;
-
-  // ✅ 1~3장 “있는 그대로”
   final List<int> cardIds;
-
-  // ✅ 리스트에서 보여줄 텍스트(예상/실제)
   final String beforeText;
   final String afterText;
 
@@ -484,17 +439,16 @@ class _DiaryListRow extends StatelessWidget {
   final _DiaryRowModel model;
   final VoidCallback onTap;
 
-  // ✅ 추가: 카드 접힘 상태 + 토글 콜백
-  final bool cardsExpanded;
-  final VoidCallback onToggleCards;
+  // ✅ 날짜 박스 접힘
+  final bool collapsed;
+  final VoidCallback onToggleCollapsed;
 
   const _DiaryListRow({
     required this.model,
     required this.onTap,
-    required this.cardsExpanded,
-    required this.onToggleCards,
+    required this.collapsed,
+    required this.onToggleCollapsed,
   });
-
 
   String _weekdayKo(int weekday) {
     switch (weekday) {
@@ -516,151 +470,166 @@ class _DiaryListRow extends StatelessWidget {
     }
   }
 
-  String _formatKoreanDateFull(DateTime d) {
-    return '${d.year}. ${d.month}. ${d.day} (${_weekdayKo(d.weekday)})';
-  }
+  String _formatKoreanDateFull(DateTime d) => '${d.year}. ${d.month}. ${d.day} (${_weekdayKo(d.weekday)})';
 
   bool _isFuture(DateTime d) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final day = DateTime(d.year, d.month, d.day);
-    return day.isAfter(today); // 내일~미래
+    return day.isAfter(today);
   }
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
-    // ✅ 추가: 카드 접힘일 때 더 많이 보여주기
-    final int lines = cardsExpanded ? 2 : 6;
+    final panelBorder = AppTheme.panelBorder;
+    final panelBorderSoft = AppTheme.panelBorderSoft;
 
     final beforeTrim = model.beforeText.trim();
     final afterTrim = model.afterText.trim();
 
     Widget beforeBlock() {
-      final tone = AppTheme.gold.withOpacity(0.85);
-
-      if (beforeTrim.isEmpty) {
-        return _BadgeOnlyLine(
-          badge: "예상",
-          badgeTone: tone,
-        );
-      }
+      final tone = AppTheme.a(AppTheme.accent, 0.88);
+      if (beforeTrim.isEmpty) return _BadgeOnlyLine(badge: "예상", badgeTone: tone);
       return _LabeledText2Lines(
         badge: "예상",
         badgeTone: tone,
         text: beforeTrim,
-        textTone: AppTheme.tPrimary.withOpacity(0.86),
-        maxLines: lines, // ✅ 추가
+        textTone: AppTheme.a(AppTheme.tPrimary, 0.88),
+        maxLines: 6,
       );
     }
 
     Widget afterBlock() {
+      final tone = AppTheme.a(AppTheme.accentDeep, 0.88);
       if (afterTrim.isNotEmpty) {
         return _LabeledText2Lines(
           badge: "실제",
-          badgeTone: gold.withOpacity(0.85),
+          badgeTone: tone,
           text: afterTrim,
-          textTone: AppTheme.tPrimary.withOpacity(0.82),
+          textTone: AppTheme.a(AppTheme.tPrimary, 0.84),
+          maxLines: 6,
         );
       }
 
       if (_isFuture(model.date)) {
         return _BadgeWithIconOnlyLine(
           badge: "실제",
-          badgeTone: AppTheme.tMuted.withOpacity(0.80),
+          badgeTone: AppTheme.a(AppTheme.tMuted, 0.76),
           icon: Icons.lock_rounded,
-          iconTone: AppTheme.tMuted.withOpacity(0.85),
+          iconTone: AppTheme.a(AppTheme.tMuted, 0.82),
         );
       }
 
       return _AfterStateLine(
         badge: "실제",
-        badgeTone: AppTheme.tMuted.withOpacity(0.80),
+        badgeTone: AppTheme.a(AppTheme.tMuted, 0.76),
         text: "-",
-        textTone: AppTheme.tMuted.withOpacity(0.82),
+        textTone: AppTheme.a(AppTheme.tMuted, 0.82),
       );
     }
 
     return _GlassCard(
-      bg: Colors.white.withOpacity(0.04),
-      border: AppTheme.panelBorder,
+      bg: AppTheme.panelFill,
+      border: panelBorder,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          // ✅ 카드 라운드랑 동일
           borderRadius: BorderRadius.circular(18),
-          splashColor: AppTheme.gold.withOpacity(0.10),
-          highlightColor: AppTheme.gold.withOpacity(0.06),
+          splashColor: AppTheme.inkSplash,
+          highlightColor: AppTheme.inkHighlight,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ✅ 날짜/접기: 칩 제거 (텍스트 + 배경없는 버튼)
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    _DatePill(text: _formatKoreanDateFull(model.date)),
-                    const Spacer(),
-                    Icon(Icons.chevron_right_rounded,
-                        color: AppTheme.tMuted.withOpacity(0.55)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                Column(
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '카드',
-                          style: GoogleFonts.gowunDodum(
-                            color: AppTheme.tPrimary.withOpacity(0.72),
-                            fontSize: 12.0,
-                            fontWeight: FontWeight.w800,
-                          ),
+                    Expanded(
+                      child: Text(
+                        _formatKoreanDateFull(model.date),
+                        style: GoogleFonts.gowunDodum(
+                          color: AppTheme.a(AppTheme.tPrimary, 0.92),
+                          fontSize: 12.4,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
                         ),
-                        const Spacer(),
-                        _TinyGhostChip(
-                          icon: cardsExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                          label: cardsExpanded ? '접기' : '펼치기',
-                          onTap: onToggleCards,
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 8),
-
-                    if (cardsExpanded)
-                      Center(
-                        child: _CardThumbRow(
-                          cardIds: model.cardIds,
-                          tagPrefix: 'list_${model.date.toIso8601String()}',
-                        ),
-                      )
-                    else
-                      const SizedBox(height: 6),
+                    _PlainToggleButton(
+                      collapsed: collapsed,
+                      onTap: onToggleCollapsed,
+                    ),
                   ],
                 ),
 
-
-                const SizedBox(height: 10),
-                Container(height: 1, color: gold.withOpacity(0.12)),
-                const SizedBox(height: 10),
-
-                beforeBlock(),
-                const SizedBox(height: 10),
-                afterBlock(),
+                if (collapsed) ...[
+                  const SizedBox(height: 6),
+                ] else ...[
+                  const SizedBox(height: 10),
+                  Center(
+                    child: _CardThumbRow(
+                      cardIds: model.cardIds,
+                      tagPrefix: 'list_${model.date.toIso8601String()}',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(height: 1, color: panelBorderSoft),
+                  const SizedBox(height: 10),
+                  beforeBlock(),
+                  const SizedBox(height: 10),
+                  afterBlock(),
+                ],
               ],
             ),
           ),
         ),
       ),
     );
-
   }
 }
 
-/// ✅ 카드 이미지 리스트(1~3장) - 가운데 정렬, 있는대로 표시
+/// ✅ 칩 느낌 제거한 접기/펼치기 버튼
+/// ✅ 칩 느낌 제거한 접기/펼치기 버튼 (텍스트 제거: 아이콘만)
+class _PlainToggleButton extends StatelessWidget {
+  final bool collapsed;
+  final VoidCallback onTap;
+
+  const _PlainToggleButton({
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = collapsed ? Icons.expand_more_rounded : Icons.expand_less_rounded;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        splashColor: AppTheme.inkSplash,
+        highlightColor: AppTheme.inkHighlight,
+        child: SizedBox(
+          width: 34,
+          height: 28, // ✅ 라인 높이 고정 (날짜 텍스트와 균형)
+          child: Center(
+            child: Icon(
+              icon,
+              size: 20,
+              color: AppTheme.a(AppTheme.tMuted, 0.88),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ✅ 카드 이미지 리스트(1~3장) - 가운데 정렬
 class _CardThumbRow extends StatelessWidget {
   final List<int> cardIds;
   final String tagPrefix;
@@ -677,25 +646,22 @@ class _CardThumbRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
     final ids = cardIds.take(3).toList();
 
-    // 카드가 없으면 placeholder
     if (ids.isEmpty) {
       return Container(
         width: 74,
         height: 74,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.03),
+          color: AppTheme.a(Colors.white, 0.03),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: gold.withOpacity(0.14), width: 1),
+          border: Border.all(color: AppTheme.panelBorderSoft, width: 1),
         ),
         alignment: Alignment.center,
-        child: Icon(Icons.style_rounded, color: gold.withOpacity(0.55), size: 20),
+        child: Icon(Icons.style_rounded, color: AppTheme.a(AppTheme.tMuted, 0.70), size: 20),
       );
     }
 
-    // ✅ 카드 1~3장: list_diary와 동일 여백(10)
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(ids.length, (i) {
@@ -704,10 +670,12 @@ class _CardThumbRow extends StatelessWidget {
         return Padding(
           padding: EdgeInsets.only(right: i == ids.length - 1 ? 0 : 10),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(10),
             child: Material(
-              color: Colors.white.withOpacity(0.04),
+              color: AppTheme.a(Colors.white, 0.04),
               child: InkWell(
+                splashColor: AppTheme.inkSplash,
+                highlightColor: AppTheme.inkHighlight,
                 onTap: () {
                   TarotCardPreview.open(
                     context,
@@ -725,8 +693,7 @@ class _CardThumbRow extends StatelessWidget {
                       fit: BoxFit.cover,
                       filterQuality: FilterQuality.high,
                       errorBuilder: (_, __, ___) => Center(
-                        child: Icon(Icons.style_rounded,
-                            color: gold.withOpacity(0.55), size: 18),
+                        child: Icon(Icons.style_rounded, color: AppTheme.a(AppTheme.tMuted, 0.70), size: 18),
                       ),
                     ),
                   ),
@@ -740,45 +707,14 @@ class _CardThumbRow extends StatelessWidget {
   }
 }
 
-
-class _DatePill extends StatelessWidget {
-  final String text;
-  const _DatePill({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: gold.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: gold.withOpacity(0.20), width: 1),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.gowunDodum(
-          color: AppTheme.tPrimary.withOpacity(0.90),
-          fontSize: 11.6,
-          fontWeight: FontWeight.w900,
-          height: 1.0,
-        ),
-      ),
-    );
-  }
-}
-
 class _EmptyListCard extends StatelessWidget {
   const _EmptyListCard();
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
     return _GlassCard(
-      bg: Colors.white.withOpacity(0.04),
-      border: gold.withOpacity(0.18),
+      bg: AppTheme.panelFill,
+      border: AppTheme.panelBorder,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(
@@ -787,7 +723,7 @@ class _EmptyListCard extends StatelessWidget {
             Text(
               '이 달에는 아직 기록이 없어요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.tPrimary.withOpacity(0.92),
+                color: AppTheme.a(AppTheme.tPrimary, 0.92),
                 fontSize: 13.2,
                 fontWeight: FontWeight.w800,
                 height: 1.15,
@@ -797,7 +733,7 @@ class _EmptyListCard extends StatelessWidget {
             Text(
               '캘린더에서 날짜를 선택하고 일기를 작성해봐요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.tMuted.withOpacity(0.92),
+                color: AppTheme.a(AppTheme.tMuted, 0.88),
                 fontSize: 11.8,
                 fontWeight: FontWeight.w700,
                 height: 1.45,
@@ -815,11 +751,9 @@ class _EmptySearchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
     return _GlassCard(
-      bg: Colors.white.withOpacity(0.04),
-      border: gold.withOpacity(0.18),
+      bg: AppTheme.panelFill,
+      border: AppTheme.panelBorder,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(
@@ -828,7 +762,7 @@ class _EmptySearchCard extends StatelessWidget {
             Text(
               '검색 결과가 없어요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.tPrimary.withOpacity(0.92),
+                color: AppTheme.a(AppTheme.tPrimary, 0.92),
                 fontSize: 13.2,
                 fontWeight: FontWeight.w800,
                 height: 1.15,
@@ -838,7 +772,7 @@ class _EmptySearchCard extends StatelessWidget {
             Text(
               '다른 키워드로 다시 검색해보세요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.tMuted.withOpacity(0.92),
+                color: AppTheme.a(AppTheme.tMuted, 0.88),
                 fontSize: 11.8,
                 fontWeight: FontWeight.w700,
                 height: 1.45,
@@ -851,7 +785,7 @@ class _EmptySearchCard extends StatelessWidget {
   }
 }
 
-// ---------------- “예상/실제” 라인 UI ----------------
+// ---------------- “예상/실제” 라인 UI (✅ 칩 유지) ----------------
 
 class _Badge extends StatelessWidget {
   final String text;
@@ -861,19 +795,17 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
+        color: AppTheme.a(AppTheme.accent, 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: gold.withOpacity(0.14), width: 1),
+        border: Border.all(color: AppTheme.a(AppTheme.accent, 0.32), width: 1),
       ),
       child: Text(
         text,
         style: GoogleFonts.gowunDodum(
-          color: tone,
+          color: AppTheme.a(AppTheme.tPrimary, 0.92),
           fontSize: 11.6,
           fontWeight: FontWeight.w900,
           height: 1.0,
@@ -883,7 +815,6 @@ class _Badge extends StatelessWidget {
   }
 }
 
-/// ✅ 배지만 있는 라인 (예상 텍스트 비었을 때)
 class _BadgeOnlyLine extends StatelessWidget {
   final String badge;
   final Color badgeTone;
@@ -899,14 +830,11 @@ class _BadgeOnlyLine extends StatelessWidget {
   }
 }
 
-/// ✅ 배지 + 2줄 텍스트(말줄임)
 class _LabeledText2Lines extends StatelessWidget {
   final String badge;
   final Color badgeTone;
   final String text;
   final Color textTone;
-
-  // ✅ 추가
   final int maxLines;
 
   const _LabeledText2Lines({
@@ -940,7 +868,6 @@ class _LabeledText2Lines extends StatelessWidget {
   }
 }
 
-/// ✅ 실제기록 잠김 표현: 배지 + 잠김 아이콘만
 class _BadgeWithIconOnlyLine extends StatelessWidget {
   final String badge;
   final Color badgeTone;
@@ -967,7 +894,6 @@ class _BadgeWithIconOnlyLine extends StatelessWidget {
   }
 }
 
-/// ✅ 실제기록 - 기록없음
 class _AfterStateLine extends StatelessWidget {
   final String badge;
   final Color badgeTone;
@@ -1002,40 +928,42 @@ class _AfterStateLine extends StatelessWidget {
   }
 }
 
-// ---------------- Small top-right chips ----------------
+// ---------------- Small chips (상단 컨트롤용) ----------------
 
 class _TinyGhostChip extends StatelessWidget {
   final IconData icon;
   final String label;
+  final Color bg;
+  final Color border;
   final VoidCallback? onTap;
 
   const _TinyGhostChip({
     required this.icon,
     required this.label,
+    required this.bg,
+    required this.border,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
-
     final content = Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
+        color: bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: gold.withOpacity(0.16), width: 1),
+        border: Border.all(color: border, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: AppTheme.tPrimary.withOpacity(0.70)),
+          Icon(icon, size: 16, color: AppTheme.a(AppTheme.tPrimary, 0.74)),
           const SizedBox(width: 6),
           Text(
             label,
             style: GoogleFonts.gowunDodum(
-              color: AppTheme.tPrimary.withOpacity(0.70),
+              color: AppTheme.a(AppTheme.tPrimary, 0.74),
               fontSize: 11.6,
               fontWeight: FontWeight.w900,
               height: 1.0,
@@ -1052,12 +980,11 @@ class _TinyGhostChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        splashColor: gold.withOpacity(0.14),
-        highlightColor: gold.withOpacity(0.08),
+        splashColor: AppTheme.inkSplash,
+        highlightColor: AppTheme.inkHighlight,
         child: content,
       ),
     );
-
   }
 }
 
@@ -1137,7 +1064,6 @@ class _CalendarSwitchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final gold = AppTheme.gold;
     final tPrimary = AppTheme.tPrimary;
 
     return Tooltip(
@@ -1149,25 +1075,24 @@ class _CalendarSwitchButton extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          splashColor: gold.withOpacity(0.14),
-          highlightColor: gold.withOpacity(0.08),
+          splashColor: AppTheme.inkSplash,
+          highlightColor: AppTheme.inkHighlight,
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: AppTheme.calendarBg,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: gold.withOpacity(0.22), width: 1),
+              border: Border.all(color: AppTheme.panelBorder, width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.calendar_month_rounded,
-                    size: 16, color: tPrimary.withOpacity(0.86)),
+                Icon(Icons.calendar_month_rounded, size: 16, color: AppTheme.a(tPrimary, 0.88)),
                 const SizedBox(width: 6),
                 Text(
                   '캘린더',
                   style: GoogleFonts.gowunDodum(
-                    color: tPrimary.withOpacity(0.86),
+                    color: AppTheme.a(tPrimary, 0.88),
                     fontSize: 12.2,
                     fontWeight: FontWeight.w900,
                     height: 1.0,
@@ -1196,17 +1121,11 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+      decoration: glassPanelDecoration(
+        radius: 18,
+        fill: bg,
+        border: border,
+        shadow: true,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
@@ -1229,4 +1148,3 @@ PageRouteBuilder _fadeRoute(Widget page) {
     },
   );
 }
-

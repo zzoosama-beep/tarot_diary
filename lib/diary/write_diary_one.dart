@@ -377,11 +377,11 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                           hintLine,
                           textAlign: TextAlign.center,
                           style: AppTheme.uiSmallLabel.copyWith(
-                            fontSize: 11.2,
+                            fontSize: 13.2,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.2,
-                            color: _a(AppTheme.homeInkWarm, _loadingExisting ? 0.58 : 0.46),
-                            height: 1.0,
+                            color: _a(AppTheme.homeInkWarm, _loadingExisting ? 0.62 : 0.56),
+                            height: 1.2,
                           ),
                         ),
                       ),
@@ -645,10 +645,9 @@ class _PlusWriteInlineActionState extends State<_PlusWriteInlineAction> {
   Widget build(BuildContext context) {
     final enabled = widget.enabled;
 
-    final chipBg = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(Colors.white, 0.34);
-    final chipBorder = enabled ? _a(AppTheme.headerInk, 0.24) : _a(AppTheme.panelBorder, 0.18);
-    final plus = enabled ? _a(AppTheme.headerInk, 0.95) : _a(AppTheme.headerInk, 0.40);
-
+    final chipBg = enabled ? _a(const Color(0xFF8FB0FF), 0.16) : _a(Colors.white, 0.10);
+    final chipBorder = enabled ? _a(const Color(0xFFBFD0FF), 0.26) : _a(Colors.white, 0.14);
+    final plus = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
     final text = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
 
     return IgnorePointer(
