@@ -1,4 +1,3 @@
-// lib/diary/list_diary.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../arcana/arcana_labels.dart';
@@ -9,8 +8,8 @@ import '../ui/app_buttons.dart';
 
 import 'calander_diary.dart';
 import '../backend/diary_repo.dart';
-import 'write_diary.dart';
-import '../main_home_page.dart';
+import '../error/error_reporter.dart';
+import 'edit_diary.dart';
 import '../ui/tarot_card_preview.dart';
 
 class ListDiaryPage extends StatefulWidget {
@@ -26,10 +25,8 @@ class ListDiaryPage extends StatefulWidget {
 }
 
 class _ListDiaryPageState extends State<ListDiaryPage> {
-  // ===== 월 상태 =====
   late DateTime _focusedMonth;
 
-  // ✅ 날짜 박스 접힘 상태(날짜별)
   final Map<String, bool> _rowCollapsedByKey = {};
   String _rowKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
@@ -41,12 +38,25 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   bool _searchOpen = false;
   final TextEditingController _searchCtrl = TextEditingController();
   String _query = '';
+  bool _didInitialLoad = false;
 
   @override
   void initState() {
     super.initState();
     final base = widget.initialDate ?? DateTime.now();
     _focusedMonth = DateTime(base.year, base.month, 1);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (!_didInitialLoad) {
+      _didInitialLoad = true;
+      _loadMonth();
+      return;
+    }
+
     _loadMonth();
   }
 
@@ -58,7 +68,8 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
   String _monthLabel(DateTime m) => "${m.year}년 ${m.month}월";
 
-  String _norm(String s) => s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  String _norm(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
 
   List<_DiaryRowModel> _filteredRows(List<_DiaryRowModel> input) {
     final q = _norm(_query);
@@ -84,7 +95,11 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   }
 
   void _applySort(List<_DiaryRowModel> list) {
-    list.sort((a, b) => _sortDesc ? b.date.compareTo(a.date) : a.date.compareTo(b.date));
+    list.sort(
+          (a, b) => _sortDesc
+          ? b.date.compareTo(a.date)
+          : a.date.compareTo(b.date),
+    );
   }
 
   void _toggleSort() {
@@ -122,25 +137,95 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
       _fadeRoute(
         CalanderDiaryPage(
           initialViewMode: DiaryViewMode.calendar,
+          selectedDate: DateTime(_focusedMonth.year, _focusedMonth.month, 1),
         ),
       ),
     );
   }
 
+  void _showUserMessage(String message) {
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: GoogleFonts.gowunDodum(
+              fontSize: 13.2,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+  }
+
+  String _readDiaryErrorMessage() {
+    return '기록을 열지 못했습니다.\n잠시 후 다시 시도해주세요.';
+  }
+
+  String _loadMonthErrorMessage() {
+    return '이 달의 기록을 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
+  }
+
   Future<void> _openWriteFor(DateTime date) async {
     if (!mounted) return;
 
-    final changed = await Navigator.of(context).push(
-      _fadeRoute(
-        WriteDiaryPage(
-          selectedDate: DateTime(date.year, date.month, date.day),
-          initialDate: DateTime(date.year, date.month, date.day),
-        ),
-      ),
-    );
+    final safeDate = DateTime(date.year, date.month, date.day);
 
-    if (changed == true) {
-      await _loadMonth();
+    try {
+      final data = await DiaryRepo.I.read(date: safeDate);
+      if (!mounted) return;
+
+      if (data == null) {
+        _showUserMessage('선택한 날짜의 기록을 찾지 못했습니다.');
+        return;
+      }
+
+      final List<int> pickedCardIds =
+          (data['cards'] as List?)
+              ?.map((e) => (e as num).toInt())
+              .toList() ??
+              <int>[];
+
+      final int cardCount =
+      ((data['cardCount'] as int?) ?? pickedCardIds.length).clamp(1, 3);
+
+      final String initialBeforeText = (data['beforeText'] ?? '').toString();
+      final String initialAfterText = (data['afterText'] ?? '').toString();
+
+      final changed = await Navigator.of(context).push(
+        _fadeRoute(
+          EditDiaryPage(
+            pickedCardIds: pickedCardIds.take(cardCount).toList(),
+            cardCount: cardCount,
+            selectedDate: safeDate,
+            initialBeforeText: initialBeforeText,
+            initialAfterText: initialAfterText,
+          ),
+        ),
+      );
+
+      if (changed == true) {
+        await _loadMonth();
+      }
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ListDiaryPage._openWriteFor',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'date': safeDate.toIso8601String(),
+        },
+      );
+
+      if (!mounted) return;
+      _showUserMessage(_readDiaryErrorMessage());
     }
   }
 
@@ -167,7 +252,10 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
       final rows = docs.map<_DiaryRowModel>((m) {
         final date = parseDate(m['dateKey'] ?? m['date']);
 
-        final ids = (m['cards'] as List?)?.map((e) => (e as num).toInt()).toList() ?? <int>[];
+        final ids = (m['cards'] as List?)
+            ?.map((e) => (e as num).toInt())
+            .toList() ??
+            <int>[];
 
         final before = (m['beforeText'] ?? '').toString();
         final after = (m['afterText'] ?? '').toString();
@@ -186,12 +274,30 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
 
       if (!mounted) return;
       setState(() => _rows = rows);
-    } catch (_) {
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ListDiaryPage._loadMonth',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'focusedMonth': _focusedMonth.toIso8601String(),
+        },
+      );
+
       if (!mounted) return;
       setState(() => _rows = []);
+      _showUserMessage(_loadMonthErrorMessage());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
+  }
+
+  double _pageSidePadding(double width) {
+    if (width < 360) return 12;
+    if (width < 430) return 14;
+    return 18;
   }
 
   @override
@@ -204,142 +310,272 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
     final panelBorder = AppTheme.panelBorder;
     final chipBg = AppTheme.calendarBg;
 
+    final width = MediaQuery.of(context).size.width;
+    final isNarrow = width < 360;
+    final sidePad = _pageSidePadding(width);
+
     return Scaffold(
       backgroundColor: bg,
-      floatingActionButton: HomeFloatingButton(
-        onPressed: () {
-          Navigator.of(context).pushAndRemoveUntil(
-            _fadeRoute(const MainHomePage()),
-                (r) => false,
-          );
-        },
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
-                  0,
+                  sidePad,
                   LayoutTokens.scrollTopPad,
-                  0,
-                  LayoutTokens.scrollBottomSpacer + MediaQuery.of(context).viewInsets.bottom,
+                  sidePad,
+                  LayoutTokens.scrollBottomSpacer +
+                      MediaQuery.of(context).viewInsets.bottom,
                 ),
                 child: Column(
                   children: [
                     TopBox(
                       left: Transform.translate(
-                        offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
-                        child: _TightIconButton(
-                          icon: Icons.arrow_back_rounded,
-                          color: AppTheme.a(AppTheme.homeInkWarm, 0.96),
+                        offset: const Offset(-8, 0),
+                        child: AppHeaderBackIconButton(
                           onTap: () => Navigator.of(context).pop(),
                         ),
                       ),
-                      title: Text('내 타로일기 보관함', style: AppTheme.title),
-                      right: _CalendarSwitchButton(onTap: _openCalendarPage),
+                      title: Text(
+                        '내 타로일기 보관함',
+                        style: AppTheme.title,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      right: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _CalendarSwitchButton(onTap: _openCalendarPage),
+                          const SizedBox(width: 8),
+                          AppHeaderHomeButton(
+                            onTap: () => Navigator.of(context)
+                                .pushNamedAndRemoveUntil('/', (r) => false),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
                     CenterBox(
                       child: Column(
                         children: [
-                          // ===== 컨트롤 덩어리: 월이동 + 검색/정렬 + 검색바(조건부) =====
                           _GlassCard(
                             bg: panel,
                             border: panelBorder,
                             child: Padding(
-                              padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                              padding: EdgeInsets.fromLTRB(
+                                isNarrow ? 8 : 10,
+                                10,
+                                isNarrow ? 8 : 10,
+                                10,
+                              ),
                               child: Column(
                                 children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              _MiniIconButton(
-                                                icon: Icons.chevron_left_rounded,
-                                                onTap: _prevMonth,
-                                                color: AppTheme.a(AppTheme.tSecondary, 0.88),
-                                                splash: AppTheme.inkSplash,
-                                                highlight: AppTheme.inkHighlight,
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final compact = constraints.maxWidth < 340;
+
+                                      if (compact) {
+                                        return Column(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                _MiniIconButton(
+                                                  icon: Icons.chevron_left_rounded,
+                                                  onTap: _prevMonth,
+                                                  color: AppTheme.a(
+                                                    AppTheme.tSecondary,
+                                                    0.88,
+                                                  ),
+                                                  splash: AppTheme.inkSplash,
+                                                  highlight:
+                                                  AppTheme.inkHighlight,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    _monthLabel(_focusedMonth),
+                                                    style: AppTheme.month,
+                                                    overflow:
+                                                    TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _MiniIconButton(
+                                                  icon: Icons.chevron_right_rounded,
+                                                  onTap: _nextMonth,
+                                                  color: AppTheme.a(
+                                                    AppTheme.tSecondary,
+                                                    0.88,
+                                                  ),
+                                                  splash: AppTheme.inkSplash,
+                                                  highlight:
+                                                  AppTheme.inkHighlight,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                _TinyGhostChip(
+                                                  icon: Icons.search_rounded,
+                                                  label: '검색',
+                                                  bg: chipBg,
+                                                  border: panelBorder,
+                                                  onTap: _toggleSearch,
+                                                ),
+                                                _TinyGhostChip(
+                                                  icon: _sortDesc
+                                                      ? Icons.south_rounded
+                                                      : Icons.north_rounded,
+                                                  label: '정렬',
+                                                  bg: chipBg,
+                                                  border: panelBorder,
+                                                  onTap: _toggleSort,
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        );
+                                      }
+
+                                      return Row(
+                                        children: [
+                                          Expanded(
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _MiniIconButton(
+                                                    icon: Icons.chevron_left_rounded,
+                                                    onTap: _prevMonth,
+                                                    color: AppTheme.a(
+                                                      AppTheme.tSecondary,
+                                                      0.88,
+                                                    ),
+                                                    splash: AppTheme.inkSplash,
+                                                    highlight:
+                                                    AppTheme.inkHighlight,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Flexible(
+                                                    child: Text(
+                                                      _monthLabel(_focusedMonth),
+                                                      style: AppTheme.month,
+                                                      overflow: TextOverflow
+                                                          .ellipsis,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  _MiniIconButton(
+                                                    icon: Icons.chevron_right_rounded,
+                                                    onTap: _nextMonth,
+                                                    color: AppTheme.a(
+                                                      AppTheme.tSecondary,
+                                                      0.88,
+                                                    ),
+                                                    splash: AppTheme.inkSplash,
+                                                    highlight:
+                                                    AppTheme.inkHighlight,
+                                                  ),
+                                                ],
                                               ),
-                                              const SizedBox(width: 6),
-                                              Text(_monthLabel(_focusedMonth), style: AppTheme.month),
-                                              const SizedBox(width: 6),
-                                              _MiniIconButton(
-                                                icon: Icons.chevron_right_rounded,
-                                                onTap: _nextMonth,
-                                                color: AppTheme.a(AppTheme.tSecondary, 0.88),
-                                                splash: AppTheme.inkSplash,
-                                                highlight: AppTheme.inkHighlight,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              _TinyGhostChip(
+                                                icon: Icons.search_rounded,
+                                                label: '검색',
+                                                bg: chipBg,
+                                                border: panelBorder,
+                                                onTap: _toggleSearch,
+                                              ),
+                                              _TinyGhostChip(
+                                                icon: _sortDesc
+                                                    ? Icons.south_rounded
+                                                    : Icons.north_rounded,
+                                                label: '정렬',
+                                                bg: chipBg,
+                                                border: panelBorder,
+                                                onTap: _toggleSort,
                                               ),
                                             ],
                                           ),
-                                        ),
-                                      ),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          _TinyGhostChip(
-                                            icon: Icons.search_rounded,
-                                            label: '검색',
-                                            bg: chipBg,
-                                            border: panelBorder,
-                                            onTap: _toggleSearch,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          _TinyGhostChip(
-                                            icon: _sortDesc ? Icons.south_rounded : Icons.north_rounded,
-                                            label: '정렬',
-                                            bg: chipBg,
-                                            border: panelBorder,
-                                            onTap: _toggleSort,
-                                          ),
                                         ],
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
                                   if (_searchOpen) ...[
                                     const SizedBox(height: 10),
-                                    Container(height: 1, color: AppTheme.panelBorderSoft),
+                                    Container(
+                                      height: 1,
+                                      color: AppTheme.panelBorderSoft,
+                                    ),
                                     const SizedBox(height: 10),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: isNarrow ? 8 : 10,
+                                        vertical: 6,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: AppTheme.diaryFieldBg,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: AppTheme.panelBorderSoft, width: 1),
+                                        borderRadius:
+                                        BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: AppTheme.panelBorderSoft,
+                                          width: 1,
+                                        ),
                                       ),
                                       child: Row(
                                         children: [
                                           Icon(
                                             Icons.search_rounded,
                                             size: 17,
-                                            color: AppTheme.a(AppTheme.tMuted, 0.80),
+                                            color: AppTheme.a(
+                                              AppTheme.tMuted,
+                                              0.80,
+                                            ),
                                           ),
                                           const SizedBox(width: 7),
                                           Expanded(
                                             child: TextField(
                                               controller: _searchCtrl,
-                                              onChanged: (v) => setState(() => _query = v),
+                                              onChanged: (v) =>
+                                                  setState(() => _query = v),
                                               style: GoogleFonts.gowunDodum(
-                                                color: AppTheme.a(AppTheme.tPrimary, 0.92),
-                                                fontSize: 12.6,
+                                                color: AppTheme.a(
+                                                  AppTheme.tPrimary,
+                                                  0.92,
+                                                ),
+                                                fontSize:
+                                                isNarrow ? 12.2 : 12.6,
                                                 fontWeight: FontWeight.w700,
                                                 height: 1.2,
                                               ),
                                               decoration: InputDecoration(
                                                 isDense: true,
                                                 border: InputBorder.none,
-                                                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                                                contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  vertical: 4,
+                                                ),
                                                 hintText: '이 달의 기록에서 검색',
-                                                hintStyle: GoogleFonts.gowunDodum(
-                                                  color: AppTheme.a(AppTheme.tMuted, 0.72),
-                                                  fontSize: 12.4,
+                                                hintStyle:
+                                                GoogleFonts.gowunDodum(
+                                                  color: AppTheme.a(
+                                                    AppTheme.tMuted,
+                                                    0.72,
+                                                  ),
+                                                  fontSize:
+                                                  isNarrow ? 12.0 : 12.4,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
@@ -349,21 +585,23 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                             _MiniIconButton(
                                               icon: Icons.close_rounded,
                                               onTap: _clearSearch,
-                                              color: AppTheme.a(AppTheme.tPrimary, 0.80),
+                                              color: AppTheme.a(
+                                                AppTheme.tPrimary,
+                                                0.80,
+                                              ),
                                               splash: AppTheme.inkSplash,
-                                              highlight: AppTheme.inkHighlight,
+                                              highlight:
+                                              AppTheme.inkHighlight,
                                             ),
                                         ],
                                       ),
-                                    )
+                                    ),
                                   ],
                                 ],
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 12),
-
                           if (_loading)
                             Padding(
                               padding: const EdgeInsets.only(top: 10),
@@ -373,34 +611,46 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.2,
-                                    color: AppTheme.a(AppTheme.accent, 0.80),
+                                    color: AppTheme.a(
+                                      AppTheme.accent,
+                                      0.80,
+                                    ),
                                   ),
                                 ),
                               ),
                             )
                           else if (rows.isEmpty)
-                            _searchOpen && _query.trim().isNotEmpty ? const _EmptySearchCard() : const _EmptyListCard()
+                            SizedBox(
+                              width: double.infinity,
+                              child: _searchOpen && _query.trim().isNotEmpty
+                                  ? const _EmptySearchCard()
+                                  : const _EmptyListCard(),
+                            )
                           else
                             Column(
                               children: [
                                 for (int i = 0; i < rows.length; i++) ...[
-                                  Builder(builder: (_) {
-                                    final k = _rowKey(rows[i].date);
-                                    final collapsed = _rowCollapsedByKey[k] ?? false;
+                                  Builder(
+                                    builder: (_) {
+                                      final k = _rowKey(rows[i].date);
+                                      final collapsed =
+                                          _rowCollapsedByKey[k] ?? false;
 
-                                    return _DiaryListRow(
-                                      model: rows[i],
-                                      onTap: () => _openWriteFor(rows[i].date),
-                                      collapsed: collapsed,
-                                      onToggleCollapsed: () {
-                                        setState(() {
-                                          _rowCollapsedByKey[k] = !collapsed;
-                                        });
-                                      },
-                                    );
-                                  }),
+                                      return _DiaryListRow(
+                                        model: rows[i],
+                                        onTap: () =>
+                                            _openWriteFor(rows[i].date),
+                                        collapsed: collapsed,
+                                        onToggleCollapsed: () {
+                                          setState(() {
+                                            _rowCollapsedByKey[k] = !collapsed;
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
                                   const SizedBox(height: 10),
-                                ]
+                                ],
                               ],
                             ),
                         ],
@@ -417,8 +667,6 @@ class _ListDiaryPageState extends State<ListDiaryPage> {
   }
 }
 
-// ---------------- Models ----------------
-
 class _DiaryRowModel {
   final DateTime date;
   final List<int> cardIds;
@@ -433,13 +681,9 @@ class _DiaryRowModel {
   });
 }
 
-// ---------------- Widgets ----------------
-
 class _DiaryListRow extends StatelessWidget {
   final _DiaryRowModel model;
   final VoidCallback onTap;
-
-  // ✅ 날짜 박스 접힘
   final bool collapsed;
   final VoidCallback onToggleCollapsed;
 
@@ -470,7 +714,8 @@ class _DiaryListRow extends StatelessWidget {
     }
   }
 
-  String _formatKoreanDateFull(DateTime d) => '${d.year}. ${d.month}. ${d.day} (${_weekdayKo(d.weekday)})';
+  String _formatKoreanDateFull(DateTime d) =>
+      '${d.year}. ${d.month}. ${d.day} (${_weekdayKo(d.weekday)})';
 
   bool _isFuture(DateTime d) {
     final now = DateTime.now();
@@ -483,15 +728,21 @@ class _DiaryListRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final panelBorder = AppTheme.panelBorder;
     final panelBorderSoft = AppTheme.panelBorderSoft;
+    final isNarrow = MediaQuery.of(context).size.width < 360;
 
     final beforeTrim = model.beforeText.trim();
     final afterTrim = model.afterText.trim();
 
     Widget beforeBlock() {
       final tone = AppTheme.a(AppTheme.accent, 0.88);
-      if (beforeTrim.isEmpty) return _BadgeOnlyLine(badge: "예상", badgeTone: tone);
+      if (beforeTrim.isEmpty) {
+        return _BadgeOnlyLine(
+          badge: '예상',
+          badgeTone: tone,
+        );
+      }
       return _LabeledText2Lines(
-        badge: "예상",
+        badge: '예상',
         badgeTone: tone,
         text: beforeTrim,
         textTone: AppTheme.a(AppTheme.tPrimary, 0.88),
@@ -503,7 +754,7 @@ class _DiaryListRow extends StatelessWidget {
       final tone = AppTheme.a(AppTheme.accentDeep, 0.88);
       if (afterTrim.isNotEmpty) {
         return _LabeledText2Lines(
-          badge: "실제",
+          badge: '실제',
           badgeTone: tone,
           text: afterTrim,
           textTone: AppTheme.a(AppTheme.tPrimary, 0.84),
@@ -513,7 +764,7 @@ class _DiaryListRow extends StatelessWidget {
 
       if (_isFuture(model.date)) {
         return _BadgeWithIconOnlyLine(
-          badge: "실제",
+          badge: '실제',
           badgeTone: AppTheme.a(AppTheme.tMuted, 0.76),
           icon: Icons.lock_rounded,
           iconTone: AppTheme.a(AppTheme.tMuted, 0.82),
@@ -521,9 +772,9 @@ class _DiaryListRow extends StatelessWidget {
       }
 
       return _AfterStateLine(
-        badge: "실제",
+        badge: '실제',
         badgeTone: AppTheme.a(AppTheme.tMuted, 0.76),
-        text: "-",
+        text: '-',
         textTone: AppTheme.a(AppTheme.tMuted, 0.82),
       );
     }
@@ -531,59 +782,58 @@ class _DiaryListRow extends StatelessWidget {
     return _GlassCard(
       bg: AppTheme.panelFill,
       border: panelBorder,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          splashColor: AppTheme.inkSplash,
-          highlightColor: AppTheme.inkHighlight,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ✅ 날짜/접기: 칩 제거 (텍스트 + 배경없는 버튼)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _formatKoreanDateFull(model.date),
-                        style: GoogleFonts.gowunDodum(
-                          color: AppTheme.a(AppTheme.tPrimary, 0.92),
-                          fontSize: 12.4,
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                        ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isNarrow ? 10 : 12,
+            10,
+            isNarrow ? 10 : 12,
+            10,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _formatKoreanDateFull(model.date),
+                      style: GoogleFonts.gowunDodum(
+                        color: AppTheme.a(AppTheme.tPrimary, 0.92),
+                        fontSize: isNarrow ? 12.0 : 12.4,
+                        fontWeight: FontWeight.w900,
+                        height: 1.15,
                       ),
                     ),
-                    _PlainToggleButton(
-                      collapsed: collapsed,
-                      onTap: onToggleCollapsed,
-                    ),
-                  ],
-                ),
-
-                if (collapsed) ...[
-                  const SizedBox(height: 6),
-                ] else ...[
-                  const SizedBox(height: 10),
-                  Center(
-                    child: _CardThumbRow(
-                      cardIds: model.cardIds,
-                      tagPrefix: 'list_${model.date.toIso8601String()}',
-                    ),
                   ),
-                  const SizedBox(height: 10),
-                  Container(height: 1, color: panelBorderSoft),
-                  const SizedBox(height: 10),
-                  beforeBlock(),
-                  const SizedBox(height: 10),
-                  afterBlock(),
+                  const SizedBox(width: 6),
+                  _PlainToggleButton(
+                    collapsed: collapsed,
+                    onTap: onToggleCollapsed,
+                  ),
                 ],
+              ),
+              if (collapsed) ...[
+                const SizedBox(height: 6),
+              ] else ...[
+                const SizedBox(height: 10),
+                Center(
+                  child: _CardThumbRow(
+                    cardIds: model.cardIds,
+                    tagPrefix: 'list_${model.date.toIso8601String()}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(height: 1, color: panelBorderSoft),
+                const SizedBox(height: 10),
+                beforeBlock(),
+                const SizedBox(height: 10),
+                afterBlock(),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -591,8 +841,6 @@ class _DiaryListRow extends StatelessWidget {
   }
 }
 
-/// ✅ 칩 느낌 제거한 접기/펼치기 버튼
-/// ✅ 칩 느낌 제거한 접기/펼치기 버튼 (텍스트 제거: 아이콘만)
 class _PlainToggleButton extends StatelessWidget {
   final bool collapsed;
   final VoidCallback onTap;
@@ -604,7 +852,8 @@ class _PlainToggleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = collapsed ? Icons.expand_more_rounded : Icons.expand_less_rounded;
+    final icon =
+    collapsed ? Icons.expand_more_rounded : Icons.expand_less_rounded;
 
     return Material(
       color: Colors.transparent,
@@ -615,7 +864,7 @@ class _PlainToggleButton extends StatelessWidget {
         highlightColor: AppTheme.inkHighlight,
         child: SizedBox(
           width: 34,
-          height: 28, // ✅ 라인 높이 고정 (날짜 텍스트와 균형)
+          height: 28,
           child: Center(
             child: Icon(
               icon,
@@ -629,7 +878,6 @@ class _PlainToggleButton extends StatelessWidget {
   }
 }
 
-/// ✅ 카드 이미지 리스트(1~3장) - 가운데 정렬
 class _CardThumbRow extends StatelessWidget {
   final List<int> cardIds;
   final String tagPrefix;
@@ -647,53 +895,66 @@ class _CardThumbRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ids = cardIds.take(3).toList();
+    final width = MediaQuery.of(context).size.width;
+    final isNarrow = width < 360;
+
+    final thumbW = isNarrow ? 54.0 : 62.0;
+    final thumbH = isNarrow ? 94.0 : 108.0;
+    final gap = isNarrow ? 8.0 : 10.0;
 
     if (ids.isEmpty) {
       return Container(
-        width: 74,
-        height: 74,
+        width: isNarrow ? 66 : 74,
+        height: isNarrow ? 66 : 74,
         decoration: BoxDecoration(
           color: AppTheme.a(Colors.white, 0.03),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppTheme.panelBorderSoft, width: 1),
         ),
         alignment: Alignment.center,
-        child: Icon(Icons.style_rounded, color: AppTheme.a(AppTheme.tMuted, 0.70), size: 20),
+        child: Icon(
+          Icons.style_rounded,
+          color: AppTheme.a(AppTheme.tMuted, 0.70),
+          size: 20,
+        ),
       );
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: gap,
+      runSpacing: gap,
       children: List.generate(ids.length, (i) {
         final path = _assetOf(ids[i]);
 
-        return Padding(
-          padding: EdgeInsets.only(right: i == ids.length - 1 ? 0 : 10),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Material(
-              color: AppTheme.a(Colors.white, 0.04),
-              child: InkWell(
-                splashColor: AppTheme.inkSplash,
-                highlightColor: AppTheme.inkHighlight,
-                onTap: () {
-                  TarotCardPreview.open(
-                    context,
-                    assetPath: path,
-                    heroTag: '${tagPrefix}_$i-$path',
-                  );
-                },
-                child: Hero(
-                  tag: '${tagPrefix}_$i-$path',
-                  child: SizedBox(
-                    width: 62,
-                    height: 108,
-                    child: Image.asset(
-                      path,
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.high,
-                      errorBuilder: (_, __, ___) => Center(
-                        child: Icon(Icons.style_rounded, color: AppTheme.a(AppTheme.tMuted, 0.70), size: 18),
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Material(
+            color: AppTheme.a(Colors.white, 0.04),
+            child: InkWell(
+              splashColor: AppTheme.inkSplash,
+              highlightColor: AppTheme.inkHighlight,
+              onTap: () {
+                TarotCardPreview.open(
+                  context,
+                  assetPath: path,
+                  heroTag: '${tagPrefix}_$i-$path',
+                );
+              },
+              child: Hero(
+                tag: '${tagPrefix}_$i-$path',
+                child: SizedBox(
+                  width: thumbW,
+                  height: thumbH,
+                  child: Image.asset(
+                    path,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (_, __, ___) => Center(
+                      child: Icon(
+                        Icons.style_rounded,
+                        color: AppTheme.a(AppTheme.tMuted, 0.70),
+                        size: 18,
                       ),
                     ),
                   ),
@@ -712,31 +973,42 @@ class _EmptyListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return _GlassCard(
       bg: AppTheme.panelFill,
       border: AppTheme.panelBorder,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 108),
+        padding: EdgeInsets.fromLTRB(
+          isNarrow ? 16 : 18,
+          18,
+          isNarrow ? 16 : 18,
+          18,
+        ),
+        alignment: Alignment.centerLeft,
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               '이 달에는 아직 기록이 없어요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.a(AppTheme.tPrimary, 0.92),
-                fontSize: 13.2,
-                fontWeight: FontWeight.w800,
-                height: 1.15,
+                color: AppTheme.a(AppTheme.tPrimary, 0.78),
+                fontSize: isNarrow ? 13.0 : 13.6,
+                fontWeight: FontWeight.w900,
+                height: 1.18,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              '캘린더에서 날짜를 선택하고 일기를 작성해봐요.',
+              '캘린더에서 날짜를 선택하고 일기를 작성해보세요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.a(AppTheme.tMuted, 0.88),
-                fontSize: 11.8,
-                fontWeight: FontWeight.w700,
-                height: 1.45,
+                color: AppTheme.a(AppTheme.tPrimary, 0.64),
+                fontSize: isNarrow ? 11.8 : 12.1,
+                fontWeight: FontWeight.w800,
+                height: 1.5,
               ),
             ),
           ],
@@ -751,31 +1023,42 @@ class _EmptySearchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return _GlassCard(
       bg: AppTheme.panelFill,
       border: AppTheme.panelBorder,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 108),
+        padding: EdgeInsets.fromLTRB(
+          isNarrow ? 16 : 18,
+          18,
+          isNarrow ? 16 : 18,
+          18,
+        ),
+        alignment: Alignment.centerLeft,
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               '검색 결과가 없어요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.a(AppTheme.tPrimary, 0.92),
-                fontSize: 13.2,
-                fontWeight: FontWeight.w800,
-                height: 1.15,
+                color: AppTheme.a(AppTheme.tPrimary, 0.78),
+                fontSize: isNarrow ? 13.0 : 13.6,
+                fontWeight: FontWeight.w900,
+                height: 1.18,
               ),
             ),
             const SizedBox(height: 10),
             Text(
               '다른 키워드로 다시 검색해보세요.',
               style: GoogleFonts.gowunDodum(
-                color: AppTheme.a(AppTheme.tMuted, 0.88),
-                fontSize: 11.8,
-                fontWeight: FontWeight.w700,
-                height: 1.45,
+                color: AppTheme.a(AppTheme.tPrimary, 0.64),
+                fontSize: isNarrow ? 11.8 : 12.1,
+                fontWeight: FontWeight.w800,
+                height: 1.5,
               ),
             ),
           ],
@@ -785,22 +1068,23 @@ class _EmptySearchCard extends StatelessWidget {
   }
 }
 
-// ---------------- “예상/실제” 라인 UI (✅ 칩 유지) ----------------
-
 class _Badge extends StatelessWidget {
   final String text;
   final Color tone;
 
-  const _Badge({required this.text, required this.tone});
+  const _Badge({
+    required this.text,
+    required this.tone,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppTheme.a(AppTheme.accent, 0.18),
+        color: AppTheme.a(tone, 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppTheme.a(AppTheme.accent, 0.32), width: 1),
+        border: Border.all(color: AppTheme.a(tone, 0.32), width: 1),
       ),
       child: Text(
         text,
@@ -847,6 +1131,8 @@ class _LabeledText2Lines extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -858,7 +1144,7 @@ class _LabeledText2Lines extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.gowunDodum(
             color: textTone,
-            fontSize: 12.6,
+            fontSize: isNarrow ? 12.2 : 12.6,
             fontWeight: FontWeight.w700,
             height: 1.45,
           ),
@@ -909,6 +1195,8 @@ class _AfterStateLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -918,7 +1206,7 @@ class _AfterStateLine extends StatelessWidget {
           text,
           style: GoogleFonts.gowunDodum(
             color: textTone,
-            fontSize: 12.2,
+            fontSize: isNarrow ? 11.8 : 12.2,
             fontWeight: FontWeight.w800,
             height: 1.0,
           ),
@@ -927,8 +1215,6 @@ class _AfterStateLine extends StatelessWidget {
     );
   }
 }
-
-// ---------------- Small chips (상단 컨트롤용) ----------------
 
 class _TinyGhostChip extends StatelessWidget {
   final IconData icon;
@@ -947,9 +1233,11 @@ class _TinyGhostChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     final content = Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: isNarrow ? 27 : 28,
+      padding: EdgeInsets.symmetric(horizontal: isNarrow ? 9 : 10),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),
@@ -964,7 +1252,7 @@ class _TinyGhostChip extends StatelessWidget {
             label,
             style: GoogleFonts.gowunDodum(
               color: AppTheme.a(AppTheme.tPrimary, 0.74),
-              fontSize: 11.6,
+              fontSize: isNarrow ? 11.2 : 11.6,
               fontWeight: FontWeight.w900,
               height: 1.0,
             ),
@@ -988,39 +1276,6 @@ class _TinyGhostChip extends StatelessWidget {
   }
 }
 
-// ---------------- Shared UI bits ----------------
-
-class _TightIconButton extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _TightIconButton({
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkResponse(
-      onTap: onTap,
-      radius: 22,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: IconTheme(
-            data: IconThemeData(color: color),
-            child: Icon(icon, size: 24),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _MiniIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -1038,6 +1293,8 @@ class _MiniIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 360;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1046,10 +1303,14 @@ class _MiniIconButton extends StatelessWidget {
         splashColor: splash,
         highlightColor: highlight,
         child: SizedBox(
-          width: 28,
-          height: 28,
+          width: isNarrow ? 26 : 28,
+          height: isNarrow ? 26 : 28,
           child: Center(
-            child: Icon(icon, size: 20, color: color),
+            child: Icon(
+              icon,
+              size: isNarrow ? 18 : 20,
+              color: color,
+            ),
           ),
         ),
       ),
@@ -1060,11 +1321,14 @@ class _MiniIconButton extends StatelessWidget {
 class _CalendarSwitchButton extends StatelessWidget {
   final VoidCallback onTap;
 
-  const _CalendarSwitchButton({required this.onTap});
+  const _CalendarSwitchButton({
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final tPrimary = AppTheme.tPrimary;
+    final isNarrow = MediaQuery.of(context).size.width < 360;
 
     return Tooltip(
       message: '캘린더로 보기',
@@ -1078,7 +1342,10 @@ class _CalendarSwitchButton extends StatelessWidget {
           splashColor: AppTheme.inkSplash,
           highlightColor: AppTheme.inkHighlight,
           child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: EdgeInsets.symmetric(
+              horizontal: isNarrow ? 8 : 10,
+              vertical: 5,
+            ),
             decoration: BoxDecoration(
               color: AppTheme.calendarBg,
               borderRadius: BorderRadius.circular(12),
@@ -1087,13 +1354,17 @@ class _CalendarSwitchButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.calendar_month_rounded, size: 16, color: AppTheme.a(tPrimary, 0.88)),
+                Icon(
+                  Icons.calendar_month_rounded,
+                  size: isNarrow ? 15 : 16,
+                  color: AppTheme.a(tPrimary, 0.88),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '캘린더',
                   style: GoogleFonts.gowunDodum(
                     color: AppTheme.a(tPrimary, 0.88),
-                    fontSize: 12.2,
+                    fontSize: isNarrow ? 11.8 : 12.2,
                     fontWeight: FontWeight.w900,
                     height: 1.0,
                   ),

@@ -419,17 +419,38 @@ class _CardRow extends StatelessWidget {
     required this.onPreview,
   });
 
+  String _majorKoTitle() {
+    final ko = ArcanaLabels.majorKoName(card.id) ?? card.title;
+    return '${card.id}. $ko';
+  }
+
+  String _majorEnTitle() {
+    return card.title;
+  }
+
+  String _minorKoTitle() {
+    final filename = ArcanaLabels.kTarotFileNames[card.id];
+    return ArcanaLabels.minorKoFromFilename(filename) ?? card.title;
+  }
+
+  String _minorEnTitle() {
+    final filename = ArcanaLabels.kTarotFileNames[card.id];
+    return ArcanaLabels.prettyEnTitleFromFilename(filename);
+  }
 
   @override
   Widget build(BuildContext context) {
     final border = selected ? _a(AppTheme.gold, 0.42) : _a(AppTheme.gold, 0.14);
     final bg = selected ? _a(AppTheme.panelFill, 0.58) : _a(AppTheme.panelFill, 0.36);
 
+    final koTitle = card.isMajor ? _majorKoTitle() : _minorKoTitle();
+    final enTitle = card.isMajor ? _majorEnTitle() : _minorEnTitle();
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        onLongPress: onPreview, // ✅ 길게 누르면 크게 보기
+        onLongPress: onPreview,
         borderRadius: BorderRadius.circular(14),
         child: Ink(
           padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
@@ -458,15 +479,13 @@ class _CardRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-
               Expanded(
-                child: card.isMajor
-                    ? Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '${card.id}. ${card.title}', // 영문 (기존 그대로)
+                      koTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.gowunDodum(
@@ -474,11 +493,12 @@ class _CardRow extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                         color: _a(AppTheme.tPrimary, 0.94),
                         letterSpacing: -0.2,
+                        height: 1.0,
                       ),
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      ArcanaLabels.majorKoName(card.id) ?? '',
+                      enTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.gowunDodum(
@@ -490,22 +510,8 @@ class _CardRow extends StatelessWidget {
                       ),
                     ),
                   ],
-                )
-                    : Text(
-                  _minorTitleFromLabels(card),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.gowunDodum(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w900,
-                    color: _a(AppTheme.tPrimary, 0.94),
-                    letterSpacing: -0.2,
-                  ),
                 ),
               ),
-
-
-
               Icon(
                 selected ? Icons.check_circle_rounded : Icons.chevron_right_rounded,
                 size: 18,
@@ -517,13 +523,5 @@ class _CardRow extends StatelessWidget {
       ),
     );
   }
-}
-
-String _minorTitleFromLabels(ArcanaCardItem c) {
-  final filename = ArcanaLabels.kTarotFileNames[c.id];
-  final en = ArcanaLabels.prettyEnTitleFromFilename(filename);
-  final ko = ArcanaLabels.minorKoFromFilename(filename) ?? en;
-  // 네가 원하면 "rank." 같은 형식도 붙일 수 있는데, 일단 깔끔한 1줄용
-  return ko; // 예: "에이스 완즈", "완즈 2", "컵 퀸" ...
 }
 

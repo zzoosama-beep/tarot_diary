@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'backend/auth_service.dart';
+import 'error/error_reporter.dart';
 
 /// ✅ B안: "액션 시 로그인 필요"를 위한 공용 게이트
 /// - 이미 로그인(익명X)이면 true
@@ -7,8 +8,8 @@ import 'backend/auth_service.dart';
 /// - 성공하면 true / 취소 or 실패면 false
 Future<bool> requireGoogleLogin(
     BuildContext context, {
-      String title = '로그인이 필요해',
-      String message = '로그인하면 기기 변경/재설치 후에도 데이터를 안전하게 사용할 수 있어.',
+      String title = '로그인이 필요합니다',
+      String message = '로그인하시면 기기 변경이나 재설치 후에도 데이터를 안전하게 이용하실 수 있습니다.',
     }) async {
   if (AuthService.isSignedIn) return true;
 
@@ -57,7 +58,7 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
               color: _a(Colors.black, 0.35),
               blurRadius: 18,
               offset: const Offset(0, 10),
-            )
+            ),
           ],
         ),
         child: Column(
@@ -83,7 +84,6 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
               ),
             ),
             const SizedBox(height: 12),
-
             if (_err != null) ...[
               Text(
                 _err!,
@@ -97,12 +97,12 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
               ),
               const SizedBox(height: 10),
             ],
-
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _loading ? null : () => Navigator.pop(context, false),
+                    onPressed:
+                    _loading ? null : () => Navigator.pop(context, false),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _a(const Color(0xFFF3EDE0), 0.92),
                       side: BorderSide(color: _a(Colors.white, 0.18)),
@@ -125,7 +125,9 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
-                        side: BorderSide(color: _a(const Color(0xFFD4AF37), 0.55)),
+                        side: BorderSide(
+                          color: _a(const Color(0xFFD4AF37), 0.55),
+                        ),
                       ),
                     ),
                     child: _loading
@@ -155,36 +157,52 @@ class _LoginBottomSheetState extends State<_LoginBottomSheet> {
     });
 
     try {
-      // ✅ 핵심: signInWithGoogle() 직접 호출 X
-      // -> ensureSignedIn()이 익명 세션 정리까지 포함해서 "로그인 보장"
+      // ✅ 핵심:
+      // signInWithGoogle() 직접 호출 X
+      // ensureSignedIn()이 익명 세션 정리까지 포함해서 "로그인 보장"
       await AuthService.ensureSignedIn();
 
       if (!mounted) return;
       Navigator.pop(context, true);
-    } catch (e) {
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'login.requireGoogleLogin',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'title': widget.title,
+          'message': widget.message,
+        },
+      );
+
       if (!mounted) return;
       setState(() => _err = _prettyError(e));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   String _prettyError(Object e) {
     final s = e.toString();
 
-    // 사용자가 취소
-    if (s.contains('취소')) return '로그인을 취소했어.';
+    // 사용자가 취소한 경우
+    if (s.contains('취소')) {
+      return '로그인이 취소되었습니다.';
+    }
 
-    // 흔한 케이스들 부드럽게
+    // 네트워크 오류
     if (s.contains('network_error') || s.contains('NETWORK')) {
-      return '네트워크가 불안정해. 인터넷 연결을 확인해줘.';
-    }
-    if (s.contains('sign_in_failed')) {
-      return '구글 로그인에 실패했어. 잠시 후 다시 시도해줘.';
+      return '네트워크 상태가 불안정합니다. 인터넷 연결을 확인해주세요.';
     }
 
-    // 너무 길면 자르기
-    if (s.length > 140) return s.substring(0, 140) + '…';
-    return s;
+    // 로그인 실패
+    if (s.contains('sign_in_failed')) {
+      return '구글 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+    }
+
+    // 그 외에는 사용자에게 원문을 직접 노출하지 않음
+    return '로그인 중 문제가 발생했습니다. 다시 시도해주세요.';
   }
 }

@@ -64,6 +64,6 @@ class DefaultFirebaseOptions {
     projectId: 'tarotdiary-88376',
     storageBucket: 'tarotdiary-88376.firebasestorage.app',
     iosClientId: '949643870997-lgmvasoe2siif4i2oqutblp7b1v21n35.apps.googleusercontent.com',
-    iosBundleId: 'com.example.tarotDiary',
+    iosBundleId: 'com.zzoo.tarotDiary',
   );
 }

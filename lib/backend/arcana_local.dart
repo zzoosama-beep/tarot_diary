@@ -1,23 +1,17 @@
-// lib/backend/arcana_local.dart
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-/// ✅ 카드 도감(Arcana) 기록 SQLite
-/// - 카드(0~77) 1장당 1개의 기록 (업서트)
-/// - DiaryLocal과 같은 DB 파일(tarot_diary.db)을 공유
-///
-/// ✅ 중요:
-/// - 같은 DB 파일을 여러 Local이 열 때 version 충돌이 나기 쉬움
-/// - 그래서 여기서는 version 없이 openDatabase(path)로 열고,
-///   항상 CREATE TABLE IF NOT EXISTS로 테이블 존재를 보장한다.
+import '../error/error_reporter.dart';
+
 class ArcanaLocal {
   ArcanaLocal._();
   static final ArcanaLocal instance = ArcanaLocal._();
 
   static const String _dbName = 'tarot_diary.db';
   static const String table = 'arcana_notes';
-
   static const String _localUid = 'local';
 
   Database? _db;
@@ -33,19 +27,12 @@ class ArcanaLocal {
     final base = await getDatabasesPath();
     final path = p.join(base, _dbName);
 
-    // ✅ open은 "열기"만. 여기서 쓰기(CREATE TABLE) 절대 하지 않기.
     final d = await openDatabase(path);
     return d;
   }
 
-  Future<void> _ensureTablesForWrite(Database d) async {
-    // ✅ 쓰기(save/delete) 할 때만 테이블 보장
-    await _createTables(d);
-  }
-
-
-  Future<void> _createTables(Database db) async {
-    await db.execute('''
+  Future<void> _ensureTables(Database d) async {
+    await d.execute('''
       CREATE TABLE IF NOT EXISTS $table (
         uid TEXT NOT NULL,
         cardId INTEGER NOT NULL,
@@ -59,8 +46,24 @@ class ArcanaLocal {
     ''');
   }
 
+  Map<String, dynamic> _normalizeRow(Map<String, dynamic> raw) {
+    return <String, dynamic>{
+      'uid': (raw['uid'] ?? _localUid).toString(),
+      'cardId': (raw['cardId'] is num)
+          ? (raw['cardId'] as num).toInt()
+          : int.tryParse('${raw['cardId']}') ?? 0,
+      'title': (raw['title'] ?? '').toString(),
+      'meaning': (raw['meaning'] ?? '').toString(),
+      'myNote': (raw['myNote'] ?? '').toString(),
+      'tags': (raw['tags'] ?? '').toString(),
+      'updatedAt': (raw['updatedAt'] is num)
+          ? (raw['updatedAt'] as num).toInt()
+          : int.tryParse('${raw['updatedAt']}') ?? 0,
+    };
+  }
+
   // -------------------------------------------------------
-  // ✅ Public API
+  // Public API
   // -------------------------------------------------------
 
   Future<Map<String, dynamic>?> read({
@@ -70,22 +73,30 @@ class ArcanaLocal {
     final d = await db;
 
     try {
+      await _ensureTables(d); // 🔥 추가
+
       final rows = await d.query(
         table,
         where: 'uid = ? AND cardId = ?',
         whereArgs: [uid, cardId],
         limit: 1,
       );
+
       if (rows.isEmpty) return null;
-      return rows.first;
-    } catch (e) {
-      // ✅ 테이블이 없거나 read-only 등 어떤 이유든 "읽기"는 안전하게 null
-      // ignore: avoid_print
-      print('[ARCANA_DB] read failed (ignored): $e');
+      return _normalizeRow(rows.first);
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaLocal.read',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'cardId': cardId,
+        },
+      );
       return null;
     }
   }
-
 
   Future<bool> exists({
     String uid = _localUid,
@@ -95,7 +106,6 @@ class ArcanaLocal {
     return r != null;
   }
 
-  /// ✅ 저장(업서트)
   Future<void> save({
     String uid = _localUid,
     required int cardId,
@@ -106,25 +116,37 @@ class ArcanaLocal {
   }) async {
     final d = await db;
 
-    await _ensureTablesForWrite(d);
+    try {
+      await _ensureTables(d);
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-    await d.insert(
-      table,
-      {
-        'uid': uid,
-        'cardId': cardId,
-        'title': title,
-        'meaning': meaning,
-        'myNote': myNote,
-        'tags': tags,
-        'updatedAt': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+      await d.insert(
+        table,
+        {
+          'uid': uid,
+          'cardId': cardId,
+          'title': title,
+          'meaning': meaning,
+          'myNote': myNote,
+          'tags': tags,
+          'updatedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaLocal.save',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'cardId': cardId,
+        },
+      );
+      rethrow;
+    }
   }
-
 
   Future<void> delete({
     String uid = _localUid,
@@ -132,41 +154,82 @@ class ArcanaLocal {
   }) async {
     final d = await db;
 
-    await _ensureTablesForWrite(d);
+    try {
+      await _ensureTables(d);
 
-    await d.delete(
-      table,
-      where: 'uid = ? AND cardId = ?',
-      whereArgs: [uid, cardId],
-    );
+      await d.delete(
+        table,
+        where: 'uid = ? AND cardId = ?',
+        whereArgs: [uid, cardId],
+      );
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaLocal.delete',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'cardId': cardId,
+        },
+      );
+      rethrow;
+    }
   }
 
-
-
-  /// ✅ 저장된 것만 전체 리스트(최근 수정순)
   Future<List<Map<String, dynamic>>> listAll({
     String uid = _localUid,
   }) async {
     final d = await db;
 
     try {
-      return await d.query(
+      await _ensureTables(d); // 🔥 추가
+
+      final rows = await d.query(
         table,
         where: 'uid = ?',
         whereArgs: [uid],
         orderBy: 'updatedAt DESC',
       );
-    } catch (e) {
-      // ✅ 테이블이 없거나 read-only여도 리스트 화면은 그냥 "0개"로
-      // ignore: avoid_print
-      print('[ARCANA_DB] listAll failed (return empty): $e');
+
+      return rows.map(_normalizeRow).toList();
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaLocal.listAll',
+        error: e,
+        stackTrace: st,
+        extra: {'uid': uid},
+      );
       return const [];
     }
   }
 
+  Future<List<Map<String, dynamic>>> listAllForBackup({
+    String uid = _localUid,
+  }) async {
+    final d = await db;
 
+    try {
+      await _ensureTables(d);
 
-  /// (선택) 앱 종료/로그아웃 등에 호출 가능
+      final rows = await d.query(
+        table,
+        where: 'uid = ?',
+        whereArgs: [uid],
+        orderBy: 'cardId ASC',
+      );
+
+      return rows.map(_normalizeRow).toList();
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaLocal.listAllForBackup',
+        error: e,
+        stackTrace: st,
+        extra: {'uid': uid},
+      );
+      return const [];
+    }
+  }
+
   Future<void> close() async {
     final d = _db;
     _db = null;
@@ -174,44 +237,16 @@ class ArcanaLocal {
   }
 
   // -------------------------------------------------------
-  // ✅ DEBUG helpers (콘솔로 DB 상태 찍기)
+  // Debug (완전 분리)
   // -------------------------------------------------------
-  Future<String> debugDbPath() async {
-    final base = await getDatabasesPath();
-    return p.join(base, _dbName);
-  }
-
-  Future<List<Map<String, dynamic>>> debugAllRowsRaw() async {
-    final d = await db;
-
-    try {
-      return await d.query(table, orderBy: 'updatedAt DESC');
-    } catch (e) {
-      // ignore: avoid_print
-      print('[ARCANA_DB] debugAllRowsRaw failed: $e');
-      return const [];
-    }
-  }
-
-
 
   Future<void> debugPrintAllRows({String tag = 'ARCANA_DB'}) async {
-    final path = await debugDbPath();
-    final rows = await debugAllRowsRaw();
+    if (!kDebugMode) return;
 
-    // ignore: avoid_print
-    print('[$tag] dbPath = $path');
-    // ignore: avoid_print
-    print('[$tag] table=$table rowCount=${rows.length}');
+    final d = await db;
 
-    for (final r in rows.take(80)) {
-      // ignore: avoid_print
-      print(
-        '[$tag] row: uid=${r['uid']} cardId=${r['cardId']} title=${r['title']} '
-            'meaningLen=${(r['meaning'] ?? '').toString().length} '
-            'myNoteLen=${(r['myNote'] ?? '').toString().length} '
-            'tags=${r['tags']} updatedAt=${r['updatedAt']}',
-      );
-    }
+    final rows = await d.query(table, orderBy: 'updatedAt DESC');
+
+    debugPrint('[$tag] rowCount=${rows.length}');
   }
 }

@@ -1,27 +1,24 @@
-// lib/backend/arcana_repo.dart
 import 'dart:async';
+
+import '../backup/drive_backup_service.dart';
+import '../error/error_reporter.dart';
 import 'arcana_local.dart';
 
-/// ✅ 화면들은 앞으로 ArcanaRepo만 사용
-/// - 저장소: SQLite(ArcanaLocal)
-/// - uid는 호환용 더미(local)
 class ArcanaRepo {
   ArcanaRepo._();
   static final ArcanaRepo I = ArcanaRepo._();
 
   final ArcanaLocal _local = ArcanaLocal.instance;
 
-  /// 현재 로컬 저장소는 uid를 쓰지 않지만 호환용 더미
   static const String _localUid = 'local';
-
-  // -------------------------------------------------------
-  // ✅ Public API
-  // -------------------------------------------------------
+  static const int backupSchemaVersion = 1;
 
   Future<Map<String, dynamic>?> read({
     required int cardId,
   }) async {
-    return _local.read(uid: _localUid, cardId: cardId);
+    final row = await _local.read(uid: _localUid, cardId: cardId);
+    if (row == null) return null;
+    return _normalize(row);
   }
 
   Future<bool> exists({
@@ -37,71 +34,185 @@ class ArcanaRepo {
     required String myNote,
     required String tags,
   }) async {
-    await _local.save(
-      uid: _localUid,
-      cardId: cardId,
-      title: title,
-      meaning: meaning,
-      myNote: myNote,
-      tags: tags,
-    );
+    try {
+      await _local.save(
+        uid: _localUid,
+        cardId: cardId.clamp(0, 77),
+        title: title,
+        meaning: meaning,
+        myNote: myNote,
+        tags: tags,
+      );
+
+      unawaited(DriveBackupService.I.notifyDataChanged());
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaRepo.save',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'cardId': cardId,
+        },
+      );
+      rethrow;
+    }
   }
 
   Future<void> delete({
     required int cardId,
   }) async {
-    await _local.delete(uid: _localUid, cardId: cardId);
+    try {
+      await _local.delete(uid: _localUid, cardId: cardId);
+
+      unawaited(DriveBackupService.I.notifyDataChanged());
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaRepo.delete',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'cardId': cardId,
+        },
+      );
+      rethrow;
+    }
   }
 
-  /// ✅ 저장된 row만 전체 리스트(최근 수정순)
-  Future<List<Map<String, dynamic>>> listAll({
-    bool newestFirst = true,
-  }) async {
+  Future<List<Map<String, dynamic>>> listAll() async {
     final rows = await _local.listAll(uid: _localUid);
-
-    // ✅ sqflite 결과(rows)는 read-only일 수 있으니 mutable 복사본으로 정렬
-    final list = rows.map((e) => Map<String, dynamic>.from(e)).toList();
-
-    list.sort((a, b) {
-      final aT = _toInt(a['updatedAt']);
-      final bT = _toInt(b['updatedAt']);
-
-      if (aT != null && bT != null) {
-        return newestFirst ? bT.compareTo(aT) : aT.compareTo(bT);
-      }
-
-      final aId = _toInt(a['cardId']) ?? 0;
-      final bId = _toInt(b['cardId']) ?? 0;
-      return newestFirst ? bId.compareTo(aId) : aId.compareTo(bId);
-    });
-
-    return list;
+    return rows.map(_normalize).toList();
   }
 
   Future<Set<int>> listCardIdsHavingNotes() async {
     final rows = await _local.listAll(uid: _localUid);
     final set = <int>{};
+
     for (final r in rows) {
       final id = _toInt(r['cardId']);
-      if (id != null) set.add(id);
+      if (id != null && _isValidCardId(id)) {
+        set.add(id);
+      }
     }
+
     return set;
   }
 
-  // -------------------------------------------------------
-  // ✅ DEBUG: DB 상태 출력
-  // -------------------------------------------------------
-  Future<void> debugDump() async {
-    await _local.debugPrintAllRows(tag: 'ARCANA_REPO');
+  Future<bool> hasAnyData() async {
+    final rows = await _local.listAll(uid: _localUid);
+    return rows.isNotEmpty;
   }
 
-  // -------------------------------------------------------
-  // ✅ helpers
-  // -------------------------------------------------------
+  Future<List<Map<String, dynamic>>> exportAllForBackup() async {
+    final rows = await _local.listAllForBackup(uid: _localUid);
+    return rows.map(_toBackupJson).toList();
+  }
+
+  Map<String, dynamic> normalizeBackupJson(Map<String, dynamic> raw) {
+    final map = Map<String, dynamic>.from(raw);
+
+    final parsedCardId = _toInt(map['cardId']);
+    final safeCardId = (parsedCardId ?? -1);
+
+    return <String, dynamic>{
+      'cardId': safeCardId,
+      'title': _stringOf(map['title']) ?? '',
+      'meaning': _stringOf(map['meaning']) ?? '',
+      'myNote': _stringOf(map['myNote']) ?? '',
+      'tags': _stringOf(map['tags']) ?? '',
+      'updatedAt': _toInt(map['updatedAt']) ?? 0,
+    };
+  }
+
+  Future<void> importAllFromBackup(
+      List<Map<String, dynamic>> items, {
+        bool replaceExisting = true,
+      }) async {
+    try {
+      if (replaceExisting) {
+        final existing = await _local.listAll(uid: _localUid);
+        for (final row in existing) {
+          final cardId = _toInt(row['cardId']);
+          if (cardId != null && _isValidCardId(cardId)) {
+            await _local.delete(uid: _localUid, cardId: cardId);
+          }
+        }
+      }
+
+      for (final raw in items) {
+        final row = normalizeBackupJson(raw);
+        final cardId = row['cardId'] as int;
+
+        if (!_isValidCardId(cardId)) {
+          continue;
+        }
+
+        await _local.save(
+          uid: _localUid,
+          cardId: cardId,
+          title: row['title'] as String,
+          meaning: row['meaning'] as String,
+          myNote: row['myNote'] as String,
+          tags: row['tags'] as String,
+        );
+      }
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'ArcanaRepo.importAllFromBackup',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'count': items.length,
+          'replaceExisting': replaceExisting,
+        },
+      );
+      rethrow;
+    }
+  }
+
+  Map<String, dynamic> _normalize(Map<String, dynamic> raw) {
+    final map = Map<String, dynamic>.from(raw);
+
+    final parsedCardId = _toInt(map['cardId']);
+    final safeCardId = _isValidCardId(parsedCardId) ? parsedCardId! : 0;
+
+    return <String, dynamic>{
+      'cardId': safeCardId,
+      'title': _stringOf(map['title']) ?? '',
+      'meaning': _stringOf(map['meaning']) ?? '',
+      'myNote': _stringOf(map['myNote']) ?? '',
+      'tags': _stringOf(map['tags']) ?? '',
+      'updatedAt': _toInt(map['updatedAt']) ?? 0,
+    };
+  }
+
+  Map<String, dynamic> _toBackupJson(Map<String, dynamic> raw) {
+    final row = _normalize(raw);
+
+    return <String, dynamic>{
+      'schemaVersion': backupSchemaVersion,
+      'cardId': (row['cardId'] as int).clamp(0, 77),
+      'title': row['title'] as String,
+      'meaning': row['meaning'] as String,
+      'myNote': row['myNote'] as String,
+      'tags': row['tags'] as String,
+      'updatedAt': row['updatedAt'] as int,
+    };
+  }
+
   int? _toInt(dynamic v) {
     if (v == null) return null;
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse(v.toString());
+  }
+
+  String? _stringOf(dynamic v) {
+    if (v == null) return null;
+    return v.toString();
+  }
+
+  bool _isValidCardId(int? id) {
+    if (id == null) return false;
+    return id >= 0 && id <= 77;
   }
 }

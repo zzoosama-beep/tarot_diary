@@ -1,20 +1,19 @@
 // lib/ui/tarot_card_preview.dart
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class TarotCardPreview {
-  /// 어디서든 호출:
-  /// TarotCardPreview.open(context, assetPath: 'asset/cards/00-TheFool.png');
   static Future<void> open(
       BuildContext context, {
         required String assetPath,
-        String? heroTag, // 있으면 Hero 애니메이션까지
+        String? heroTag,
       }) async {
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'card-preview',
-      barrierColor: Colors.black.withOpacity(0.55),
+      barrierColor: Colors.transparent, // 🔥 변경
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (_, __, ___) {
         return _CardPreviewDialog(
@@ -47,58 +46,116 @@ class _CardPreviewDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 바깥 탭하면 닫히게
+    final media = MediaQuery.of(context);
+    final shortest = media.size.shortestSide;
+    final isTablet = shortest >= 600;
+
+    final double closeButtonSize = isTablet ? 52 : 42;
+    final double closeIconSize = isTablet ? 24 : 20;
+    final double closeTop = media.padding.top + (isTablet ? 14 : 10);
+    final double closeRight = isTablet ? 18 : 14;
+
     return Material(
       color: Colors.transparent,
       child: Stack(
         children: [
-          // ✅ 살짝 블러 + 탭 닫기
+          // 🔥 블러 + 터치 닫기
           Positioned.fill(
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => Navigator.of(context).pop(),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                child: const SizedBox.expand(),
+                child: Container(
+                  color: Colors.black.withOpacity(0.25), // 🔥 살짝만 어둡게
+                ),
               ),
             ),
           ),
 
-          // ✅ 카드 본체
+          // 카드
           Center(
-            child: GestureDetector(
-              // 카드 자체를 누르면 닫히는 거 방지
-              onTap: () {},
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  // 화면에서 너무 꽉 차지 않게
-                  maxWidth: MediaQuery.of(context).size.width * 0.74,
-                  maxHeight: MediaQuery.of(context).size.height * 0.78,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.10),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.35),
-                          blurRadius: 24,
-                          offset: const Offset(0, 14),
-                        ),
-                      ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final maxW = constraints.maxWidth;
+                final maxH = constraints.maxHeight;
+
+                final isLandscape = maxW > maxH;
+
+                final horizontalMargin =
+                isTablet ? 48 : isLandscape ? 24 : 20;
+
+                final verticalMargin =
+                isTablet ? 40 : isLandscape ? 20 : 28;
+
+                final availableW =
+                math.max(0, maxW - horizontalMargin * 2);
+                final availableH =
+                math.max(0, maxH - verticalMargin * 2);
+
+                const cardAspectRatio = 0.58;
+
+                double targetW;
+                double targetH;
+
+                if (isLandscape) {
+                  targetH = availableH * (isTablet ? 0.88 : 0.84);
+                  targetW = targetH * cardAspectRatio;
+
+                  if (targetW > availableW * 0.72) {
+                    targetW = availableW * 0.72;
+                    targetH = targetW / cardAspectRatio;
+                  }
+                } else {
+                  targetW = availableW * (isTablet ? 0.60 : 0.78);
+                  targetH = targetW / cardAspectRatio;
+
+                  if (targetH > availableH * 0.86) {
+                    targetH = availableH * 0.86;
+                    targetW = targetH * cardAspectRatio;
+                  }
+                }
+
+                final finalW =
+                targetW.clamp(180.0, isTablet ? 420.0 : 340.0);
+                final finalH =
+                targetH.clamp(300.0, isTablet ? 720.0 : 620.0);
+
+                return SizedBox(
+                  width: finalW,
+                  height: finalH,
+                  child: ClipRRect(
+                    borderRadius:
+                    BorderRadius.circular(isTablet ? 22 : 16),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.35),
+                            blurRadius: isTablet ? 30 : 24,
+                            offset: const Offset(0, 14),
+                          ),
+                        ],
+                      ),
+                      child: AspectRatio(
+                        aspectRatio: cardAspectRatio,
+                        child: _buildZoomableImage(context),
+                      ),
                     ),
-                    child: _buildZoomableImage(context),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
 
-          // ✅ 닫기 버튼(오른쪽 상단)
+          // 닫기 버튼
           Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            right: 14,
+            top: closeTop,
+            right: closeRight,
             child: _CloseButton(
+              size: closeButtonSize,
+              iconSize: closeIconSize,
               onTap: () => Navigator.of(context).pop(),
             ),
           ),
@@ -112,23 +169,22 @@ class _CardPreviewDialog extends StatelessWidget {
       assetPath,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
+      cacheWidth: 600,
     );
 
     final child = InteractiveViewer(
       minScale: 1.0,
-      maxScale: 3.0,
-      panEnabled: true,
-      scaleEnabled: true,
-      child: Center(child: image),
+      maxScale: 3.2,
+      boundaryMargin: const EdgeInsets.all(24),
+      child: SizedBox.expand(
+        child: Center(child: image),
+      ),
     );
 
     if (heroTag == null) return child;
 
     return Hero(
       tag: heroTag!,
-      flightShuttleBuilder: (ctx, anim, __, ___, ____) {
-        return FadeTransition(opacity: anim, child: image);
-      },
       child: child,
     );
   }
@@ -136,23 +192,37 @@ class _CardPreviewDialog extends StatelessWidget {
 
 class _CloseButton extends StatelessWidget {
   final VoidCallback onTap;
-  const _CloseButton({required this.onTap});
+  final double size;
+  final double iconSize;
+
+  const _CloseButton({
+    required this.onTap,
+    required this.size,
+    required this.iconSize,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white.withOpacity(0.08),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.white.withOpacity(0.14), width: 1),
+        borderRadius: BorderRadius.circular(size * 0.3),
+        side: BorderSide(
+          color: Colors.white.withOpacity(0.14),
+          width: 1,
+        ),
       ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: const SizedBox(
-          width: 40,
-          height: 40,
-          child: Icon(Icons.close_rounded, size: 20, color: Colors.white),
+        borderRadius: BorderRadius.circular(size * 0.3),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Icon(
+            Icons.close_rounded,
+            size: iconSize,
+            color: Colors.white,
+          ),
         ),
       ),
     );

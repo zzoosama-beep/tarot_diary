@@ -16,6 +16,7 @@ enum FlipTarotMode {
 ///   2) auto  : controlled flip (widget.flipped) + onTap (parent handles)
 /// - ✅ orderBadge는 카드 위에 고정(뒤집혀도 안 뒤집힘)
 /// - ✅ 앞면 좌우반전 방지(Front일 때 pi 보정)
+/// - ✅ 반응형: 카드 실제 크기에 따라 radius / badge / icon / border 자동 조정
 /// =======================================================
 class FlipTarotCard extends StatefulWidget {
   final FlipTarotMode mode;
@@ -47,9 +48,6 @@ class FlipTarotCard extends StatefulWidget {
   // -----------------------
   /// Picker 모드에서 "뒤집힘 완료 후" 호출 (부모가 선택 처리)
   final VoidCallback? onSelected;
-
-  /// Picker 모드에서 외부에서 리셋 트리거하고 싶을 때 키 변경으로 리셋 가능
-  /// (예: ValueKey(deckVersion)로 새로 만들기)
 
   const FlipTarotCard({
     super.key,
@@ -97,8 +95,6 @@ class _FlipTarotCardState extends State<FlipTarotCard>
     _flipC = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 450),
-      // ✅ Auto는 외부 flipped 따라가야 하고,
-      // ✅ Picker는 초기에 무조건 뒷면(0.0)에서 시작하는게 일반적
       value: _isAuto ? (widget.flipped ? 1.0 : 0.0) : 0.0,
     );
 
@@ -136,14 +132,16 @@ class _FlipTarotCardState extends State<FlipTarotCard>
         _hasPoppedThisFlip = true;
         _popC.forward(from: 0.0);
 
-        // ✅ Picker 모드면: 뒤집힘 완료 후 콜백 호출
         if (_isPicker) {
           widget.onSelected?.call();
         }
       }
+
       if (status == AnimationStatus.dismissed) {
         _hasPoppedThisFlip = false;
-        if (_isPicker) _lockedPicker = false; // 리셋 가능(키 재생성 안 해도)
+        if (_isPicker) {
+          _lockedPicker = false;
+        }
       }
     });
   }
@@ -152,7 +150,6 @@ class _FlipTarotCardState extends State<FlipTarotCard>
   void didUpdateWidget(covariant FlipTarotCard oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // ✅ Auto 모드: 외부 flipped 변경에 따라 애니
     if (_isAuto && oldWidget.flipped != widget.flipped) {
       if (widget.flipped) {
         _flipC.forward();
@@ -161,11 +158,8 @@ class _FlipTarotCardState extends State<FlipTarotCard>
       }
     }
 
-    // ✅ Picker 모드: 외부에서 이미지를 바꾸면(카드 교체 등) 다시 뒷면부터 시작시키고 싶을 수 있음
-    // - 가장 안전한 방법은 부모가 key를 바꾸는 것(ValueKey)
-    // - 여기서는 "frontImage가 바뀌었고, 아직 뒤집힌 상태면" 다시 뒤집어두는 정도만 제공
     if (_isPicker && oldWidget.frontImage != widget.frontImage) {
-      // 필요하면 여기서 리셋/동작 변경 가능
+      // 부모가 key 변경으로 재생성하는 방식이 가장 안전
     }
   }
 
@@ -195,9 +189,6 @@ class _FlipTarotCardState extends State<FlipTarotCard>
     if (widget.disabled) return;
 
     if (_isPicker) {
-      // -----------------------
-      // Picker 모드: 내부에서 flip
-      // -----------------------
       if (_lockedPicker) return;
       if (_flipC.isAnimating) return;
 
@@ -206,9 +197,6 @@ class _FlipTarotCardState extends State<FlipTarotCard>
       return;
     }
 
-    // -----------------------
-    // Auto 모드: 부모가 처리 후 flipped를 true로 바꿔주면 애니가 따라감
-    // -----------------------
     widget.onTap?.call();
   }
 
@@ -216,102 +204,193 @@ class _FlipTarotCardState extends State<FlipTarotCard>
   Widget build(BuildContext context) {
     final badge = widget.orderBadge;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTapDown: _tapDown,
-      onTapUp: _tapUp,
-      onTapCancel: _tapCancel,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          AnimatedBuilder(
-            animation: Listenable.merge([_flipC, _pressC, _popC]),
-            builder: (context, _) {
-              final t = _flipC.value;
-              final angle = t * pi;
-              final showFront = angle > (pi / 2);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardW = constraints.maxWidth.isFinite ? constraints.maxWidth : 100.0;
+        final cardH = constraints.maxHeight.isFinite ? constraints.maxHeight : 160.0;
+        final shortest = min(cardW, cardH);
 
-              final m = Matrix4.identity()
-                ..setEntry(3, 2, 0.001)
-                ..rotateY(angle);
+        final ui = _FlipCardResponsive.fromSize(cardW, cardH, shortest);
 
-              Widget face = Image.asset(
-                showFront ? widget.frontImage : widget.backImage,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.white.withOpacity(0.08),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Icons.auto_awesome,
-                    color: Colors.white.withOpacity(0.45),
-                  ),
-                ),
-              );
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: _tapDown,
+          onTapUp: _tapUp,
+          onTapCancel: _tapCancel,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([_flipC, _pressC, _popC]),
+                  builder: (context, _) {
+                    final t = _flipC.value;
+                    final angle = t * pi;
+                    final showFront = angle > (pi / 2);
 
-              // ✅ 앞면 좌우반전 방지
-              if (showFront) {
-                face = Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()..rotateY(pi),
-                  child: face,
-                );
-              }
+                    final m = Matrix4.identity()
+                      ..setEntry(3, 2, 0.001)
+                      ..rotateY(angle);
 
-              final scale = _pressScale.value * _popScale.value;
+                    Widget face = Image.asset(
+                      showFront ? widget.frontImage : widget.backImage,
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.white.withAlpha((0.08 * 255).round()),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.auto_awesome,
+                          size: ui.fallbackIconSize,
+                          color: Colors.white.withAlpha((0.45 * 255).round()),
+                        ),
+                      ),
+                    );
 
-              return Transform.scale(
-                scale: scale,
-                child: Transform(
-                  alignment: Alignment.center,
-                  transform: m,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        face,
-                        if (widget.selectedOutline)
-                          Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.85),
-                                width: 2,
-                              ),
-                            ),
+                    if (showFront) {
+                      face = Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.identity()..rotateY(pi),
+                        child: face,
+                      );
+                    }
+
+                    final scale = _pressScale.value * _popScale.value;
+
+                    return Transform.scale(
+                      scale: scale,
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: m,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(ui.cardRadius),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Positioned.fill(child: face),
+                              if (widget.disabled)
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.black.withAlpha((0.16 * 255).round()),
+                                  ),
+                                ),
+                              if (widget.selectedOutline)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius:
+                                      BorderRadius.circular(ui.cardRadius),
+                                      border: Border.all(
+                                        color: Colors.white
+                                            .withAlpha((0.85 * 255).round()),
+                                        width: ui.outlineWidth,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                      ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // ✅ 숫자 뱃지(절대 안 뒤집힘)
+              if (badge != null)
+                Positioned(
+                  top: ui.badgeInset,
+                  right: ui.badgeInset,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: ui.badgeHorizontalPadding,
+                      vertical: ui.badgeVerticalPadding,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlpha((0.55 * 255).round()),
+                      borderRadius: BorderRadius.circular(ui.badgeRadius),
+                      border: Border.all(
+                        color: Colors.white.withAlpha((0.25 * 255).round()),
+                        width: ui.badgeBorderWidth,
+                      ),
+                    ),
+                    child: Text(
+                      "$badge",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: ui.badgeFontSize,
+                        height: 1.0,
+                      ),
                     ),
                   ),
                 ),
-              );
-            },
+            ],
           ),
+        );
+      },
+    );
+  }
+}
 
-          // ✅ 숫자 뱃지(절대 안 뒤집힘)
-          if (badge != null)
-            Positioned(
-              top: 6,
-              right: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.55),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white.withOpacity(0.25)),
-                ),
-                child: Text(
-                  "$badge",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+class _FlipCardResponsive {
+  final double cardRadius;
+  final double outlineWidth;
+  final double fallbackIconSize;
+
+  final double badgeInset;
+  final double badgeHorizontalPadding;
+  final double badgeVerticalPadding;
+  final double badgeRadius;
+  final double badgeBorderWidth;
+  final double badgeFontSize;
+
+  const _FlipCardResponsive({
+    required this.cardRadius,
+    required this.outlineWidth,
+    required this.fallbackIconSize,
+    required this.badgeInset,
+    required this.badgeHorizontalPadding,
+    required this.badgeVerticalPadding,
+    required this.badgeRadius,
+    required this.badgeBorderWidth,
+    required this.badgeFontSize,
+  });
+
+  factory _FlipCardResponsive.fromSize(
+      double width,
+      double height,
+      double shortest,
+      ) {
+    double scale = shortest / 100.0;
+
+    if (scale < 0.72) scale = 0.72;
+    if (scale > 1.6) scale = 1.6;
+
+    double radius = 14.0 * scale;
+    radius = radius.clamp(9.0, 20.0);
+
+    double outlineWidth = (2.0 * scale).clamp(1.2, 2.6);
+    double fallbackIconSize = (24.0 * scale).clamp(16.0, 34.0);
+
+    double badgeInset = (6.0 * scale).clamp(4.0, 10.0);
+    double badgeHPad = (7.0 * scale).clamp(5.0, 10.0);
+    double badgeVPad = (4.0 * scale).clamp(3.0, 6.0);
+    double badgeRadius = (10.0 * scale).clamp(8.0, 14.0);
+    double badgeBorderWidth = (1.0 * scale).clamp(0.8, 1.4);
+    double badgeFontSize = (12.0 * scale).clamp(10.0, 16.0);
+
+    return _FlipCardResponsive(
+      cardRadius: radius,
+      outlineWidth: outlineWidth,
+      fallbackIconSize: fallbackIconSize,
+      badgeInset: badgeInset,
+      badgeHorizontalPadding: badgeHPad,
+      badgeVerticalPadding: badgeVPad,
+      badgeRadius: badgeRadius,
+      badgeBorderWidth: badgeBorderWidth,
+      badgeFontSize: badgeFontSize,
     );
   }
 }

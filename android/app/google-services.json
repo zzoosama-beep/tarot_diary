@@ -14,6 +14,30 @@
       },
       "oauth_client": [
         {
+          "client_id": "949643870997-5fikpsnmgv81ssri00n4pehqciire6am.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tarot_diary",
+            "certificate_hash": "c28e8cc88a2d74d9cdf8ad9d2c5492b3ec0c5940"
+          }
+        },
+        {
+          "client_id": "949643870997-6b1f73gp7t4tdjehge56n8svjubqlvfb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tarot_diary",
+            "certificate_hash": "5119cfcc04300b4047eb0b390e6acfcbce1b315d"
+          }
+        },
+        {
+          "client_id": "949643870997-8rkq53du4kb3uds2720lqooht3ac49c6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tarot_diary",
+            "certificate_hash": "dc26181a2f012b59b0f4dcad426c20360c7493f3"
+          }
+        },
+        {
           "client_id": "949643870997-vh1aiiigjpnqgrqch5elt2jcroc26dr2.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -29,6 +53,73 @@
             {
               "client_id": "949643870997-d7couhi59akjmvvi95jpgnc6nnltk1a9.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "949643870997-lgmvasoe2siif4i2oqutblp7b1v21n35.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.tarotDiary"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949643870997:android:b2abeb2199f05b8ab4df1c",
+        "android_client_info": {
+          "package_name": "com.zzoo.tarot_diary"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949643870997-oo7i7hmc2f5aopctgc53navemohea9bf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zzoo.tarot_diary",
+            "certificate_hash": "8ce3e6de7e9187a16dcf70176f8c16869f12ca2d"
+          }
+        },
+        {
+          "client_id": "949643870997-sqvbgiorde1aepdluggtm6jtqcrh2ac3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zzoo.tarot_diary",
+            "certificate_hash": "5119cfcc04300b4047eb0b390e6acfcbce1b315d"
+          }
+        },
+        {
+          "client_id": "949643870997-t8cervuhnm2gdkju8n0vlm9ipc83mtlt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zzoo.tarot_diary",
+            "certificate_hash": "c28e8cc88a2d74d9cdf8ad9d2c5492b3ec0c5940"
+          }
+        },
+        {
+          "client_id": "949643870997-vh1aiiigjpnqgrqch5elt2jcroc26dr2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYZKVjeJMifEGz9EXcfddBRkZwmY2ovs8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949643870997-d7couhi59akjmvvi95jpgnc6nnltk1a9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "949643870997-lgmvasoe2siif4i2oqutblp7b1v21n35.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.tarotDiary"
+              }
             }
           ]
         }

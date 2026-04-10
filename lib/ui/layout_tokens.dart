@@ -21,7 +21,7 @@ class LayoutTokens {
   static const double bottomBottomPad = 44.0;
 
   // Header back button nudge (write_diary)
-  static const double backBtnNudgeX = -8.0;
+  static const double backBtnNudgeX = -2.0;
 
   // ✅ 타이틀 옵티컬 센터 보정 (왼쪽으로 살짝)
   static const double titleOpticalNudgeX = -12.0;

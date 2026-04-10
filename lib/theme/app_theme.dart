@@ -39,6 +39,12 @@ class AppTheme {
   static const Color tSecondary = Color(0xFFE9DFD3);
   static const Color tMuted = Color(0xFFE0D6CC);
 
+  static TextStyle tsTitle() {
+    return title.copyWith(
+      color: a(homeInkWarm, 0.96),
+    );
+  }
+
   // 헤더/라인용 잉크(보라 위에서 너무 회색되지 않게)
   static const Color headerInk = Color(0xFFEAE3FF);
 
@@ -206,3 +212,5 @@ BoxDecoration glassPanelDecoration({
         : null,
   );
 }
+
+

@@ -1,7 +1,6 @@
-// lib/list_sorting.dart
 import 'package:flutter/material.dart';
 
-/// ✅ 공용 리스트 정렬 타입 (다른 리스트에서도 재사용)
+/// ✅ 공용 리스트 정렬 타입
 enum ListSort {
   numberAsc,
   numberDesc,
@@ -9,35 +8,57 @@ enum ListSort {
   nameDesc,
 }
 
-/// ✅ 드롭다운에 표시할 라벨
+/// ✅ 드롭다운 라벨
+/// 너무 길면 작은 기기에서 UI를 망가뜨리므로 짧게 유지
 String listSortLabel(ListSort s) {
   switch (s) {
     case ListSort.numberAsc:
-      return '번호 ↑';
+      return '번호↑';
     case ListSort.numberDesc:
-      return '번호 ↓';
+      return '번호↓';
     case ListSort.nameAsc:
-      return '이름 A→Z';
+      return '이름ㄱ↑';
     case ListSort.nameDesc:
-      return '이름 Z→A';
+      return '이름ㅎ↓';
   }
 }
 
-/// ✅ 아이콘(요청한 “화살표+가나다/ABC” 느낌을 최대한 머터리얼로)
+/// ✅ 아이콘
 IconData listSortIcon(ListSort s) {
   switch (s) {
     case ListSort.nameAsc:
-      return Icons.sort_by_alpha; // A→Z 느낌
+      return Icons.sort_by_alpha;
     case ListSort.nameDesc:
-      return Icons.sort_by_alpha; // 동일 아이콘 + 라벨로 구분(깔끔)
+      return Icons.sort_by_alpha;
     case ListSort.numberAsc:
-      return Icons.format_list_numbered; // 1,2,3 느낌
+      return Icons.format_list_numbered;
     case ListSort.numberDesc:
-      return Icons.format_list_numbered; // 동일 아이콘 + 라벨로 구분
+      return Icons.format_list_numbered;
   }
 }
 
-/// ✅ 정렬 비교 함수 (어떤 리스트든 id/title만 주면 됨)
+String _normalizeSpaces(String text) {
+  return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+/// 앞 숫자 prefix 제거
+/// 예:
+/// "0. 바보" -> "바보"
+/// "22 완즈 2" -> "완즈 2"
+/// "10-운명의 수레바퀴" -> "운명의 수레바퀴"
+String _stripLeadingDeckNumber(String text) {
+  return text.replaceFirst(RegExp(r'^\s*\d{1,2}\s*[-.:)]?\s*'), '').trim();
+}
+
+/// 정렬용 제목 정리
+String _normalizeSortTitle(String text) {
+  return _normalizeSpaces(_stripLeadingDeckNumber(text));
+}
+
+/// ✅ 정렬 비교 함수
+/// - 번호 정렬: id 기준
+/// - 이름 정렬: 앞 숫자 제거 후 title 기준
+/// - 같은 이름이면 id로 보조 정렬
 int compareListSort(
     ListSort sort, {
       required int idA,
@@ -45,14 +66,24 @@ int compareListSort(
       required String titleA,
       required String titleB,
     }) {
+  final normalizedA = _normalizeSortTitle(titleA);
+  final normalizedB = _normalizeSortTitle(titleB);
+
   switch (sort) {
     case ListSort.numberAsc:
       return idA.compareTo(idB);
+
     case ListSort.numberDesc:
       return idB.compareTo(idA);
+
     case ListSort.nameAsc:
-      return titleA.compareTo(titleB);
+      final cmp = normalizedA.compareTo(normalizedB);
+      if (cmp != 0) return cmp;
+      return idA.compareTo(idB);
+
     case ListSort.nameDesc:
-      return titleB.compareTo(titleA);
+      final cmp = normalizedB.compareTo(normalizedA);
+      if (cmp != 0) return cmp;
+      return idB.compareTo(idA);
   }
 }

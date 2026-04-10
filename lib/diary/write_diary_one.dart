@@ -7,6 +7,10 @@ import '../theme/app_theme.dart';
 import '../ui/layout_tokens.dart';
 import '../arcana/arcana_labels.dart';
 import '../backend/diary_repo.dart';
+import '../error/error_reporter.dart';
+import '../error/app_error_dialog.dart';
+
+import '../ui/app_buttons.dart';
 
 // ✅ 다음 화면
 import 'write_diary_two.dart';
@@ -14,7 +18,8 @@ import 'write_diary_two.dart';
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
 class WriteDiaryOnePage extends StatefulWidget {
-  const WriteDiaryOnePage({super.key});
+  final DateTime? selectedDate;
+  const WriteDiaryOnePage({super.key, this.selectedDate});
 
   @override
   State<WriteDiaryOnePage> createState() => _WriteDiaryOnePageState();
@@ -53,6 +58,9 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   String _existingBeforeText = '';
 
   DateTime get _targetDate {
+    final d = widget.selectedDate;
+    if (d != null) return DateTime(d.year, d.month, d.day);
+
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
   }
@@ -65,6 +73,15 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
       if (id != null) out.add(id);
     }
     return out;
+  }
+
+  String _loadExistingDiaryErrorMessage() {
+    return '내일 기록을 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
+  }
+
+  void _showErrorMessage(String message) {
+    if (!mounted) return;
+    showDalnyangErrorDialog(context, message: message);
   }
 
   @override
@@ -112,12 +129,22 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
         _hasExisting = true;
         _existingBeforeText = beforeText;
       });
-    } catch (_) {
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'WriteDiaryOnePage._loadExistingIfAny',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'targetDate': _targetDate.toIso8601String(),
+        },
+      );
+
       if (!mounted) return;
       setState(() {
         _hasExisting = false;
         _existingBeforeText = '';
       });
+      _showErrorMessage(_loadExistingDiaryErrorMessage());
     } finally {
       if (mounted) setState(() => _loadingExisting = false);
     }
@@ -154,21 +181,23 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
       barrierDismissible: true,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: _a(const Color(0xFF1E1330), 0.92),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: _a(const Color(0xFF2A1A3A), 0.96),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: Text(
-            '다시 뽑을까요?',
-            style: TextStyle(
-              color: _a(Colors.white, 0.92),
+            '다시 뽑기',
+            style: AppTheme.body.copyWith(
               fontWeight: FontWeight.w900,
+              color: _a(AppTheme.homeCream, 0.96),
             ),
           ),
           content: Text(
-            '지금 뽑은 카드를 모두 초기화하고\n새로 뽑을 수 있어요.',
-            style: TextStyle(
-              color: _a(Colors.white, 0.78),
-              height: 1.35,
-              fontWeight: FontWeight.w700,
+            '지금 뽑은 카드를 모두 초기화하고\n새로 다시 뽑게 돼.\n\n계속할까?',
+            style: AppTheme.body.copyWith(
+              fontSize: 13,
+              height: 1.4,
+              color: _a(AppTheme.homeCream, 0.92),
             ),
           ),
           actions: [
@@ -176,14 +205,19 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
               onPressed: () => Navigator.of(ctx).pop(false),
               child: Text(
                 '취소',
-                style: TextStyle(color: _a(Colors.white, 0.72)),
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(AppTheme.homeCream, 0.7),
+                ),
               ),
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(
                 '다시 뽑기',
-                style: TextStyle(color: _a(const Color(0xFFFFF2E6), 0.95)),
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(const Color(0xFFFF8A80), 0.95),
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ],
@@ -333,35 +367,100 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   Widget build(BuildContext context) {
     const gap = 12.0;
     const targetW = 82.0;
-    const cardGap = 12.0;
-    const maxCardW = 104.0;
 
-    final w = LayoutTokens.contentW(context);
-    final fitWFor3 = (w - (cardGap * 2)) / 3;
-    final cardW = math.min(maxCardW, fitWFor3);
+    final contentW = LayoutTokens.contentW(context);
 
     final rowMaxW = math.min(
       LayoutTokens.contentW(context),
       (targetW * 3) + (gap * 2),
     );
 
-    final contentW = LayoutTokens.contentW(context);
-
     final String hintLine = _loadingExisting
         ? '불러오는 중…'
-        : (_hasExisting ? '내일 일기 불러왔어. 수정할 수 있어!' : '카드를 누르면 자동으로 펼쳐져');
+        : (_hasExisting ? '내일 일기 불러왔어요.' : '카드를 터치하면 자동으로 뒤집어집니다');
+
+    final double sidePad = MediaQuery.of(context).size.width < 360
+        ? 12
+        : (MediaQuery.of(context).size.width < 430 ? 14 : 18);
 
     return Scaffold(
       backgroundColor: AppTheme.bgColor,
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 10),
-            _HeaderBar(
-              title: '내일 타로일기 쓰기',
-              onBack: () => Navigator.of(context).maybePop(),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                sidePad,
+                LayoutTokens.scrollTopPad,
+                sidePad,
+                0,
+              ),
+              child: SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Transform.translate(
+                          offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
+                          child: AppPressButton(
+                            onTap: () {
+                              final nav = Navigator.of(context);
+                              if (nav.canPop()) {
+                                nav.pop();
+                              } else {
+                                nav.pushNamedAndRemoveUntil('/', (route) => false);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            normalColor: Colors.transparent,
+                            pressedColor: _a(Colors.white, 0.12),
+                            child: SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: Center(
+                                child: Icon(
+                                  Icons.arrow_back_rounded,
+                                  color: _a(AppTheme.homeInkWarm, 0.96),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          '내일 타로일기 쓰기',
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: AppTheme.title.copyWith(
+                            color: _a(AppTheme.homeInkWarm, 0.96),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 56,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Transform.translate(
+                          offset: const Offset(4, 1),
+                          child: AppHeaderHomeIconButton(
+                            onTap: () => Navigator.of(context)
+                                .pushNamedAndRemoveUntil('/', (r) => false),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Expanded(
               child: Align(
                 alignment: Alignment.topCenter,
@@ -370,7 +469,6 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                   child: Column(
                     children: [
                       const Spacer(flex: 1),
-
                       Padding(
                         padding: const EdgeInsets.only(top: 0, bottom: 10),
                         child: Text(
@@ -380,14 +478,15 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                             fontSize: 13.2,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.2,
-                            color: _a(AppTheme.homeInkWarm, _loadingExisting ? 0.62 : 0.56),
+                            color: _a(
+                              AppTheme.homeInkWarm,
+                              _loadingExisting ? 0.62 : 0.56,
+                            ),
                             height: 1.2,
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 20),
-
                       _BackCardRow(
                         count: _cardCount,
                         flipped: _flipped,
@@ -396,16 +495,12 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                         showReset: _hasAnyCard,
                         onReset: _onResetCards,
                       ),
-
                       const SizedBox(height: 45),
-
                       _CountChips(
                         value: _cardCount,
                         onChanged: _onChangeCount,
                       ),
-
                       const SizedBox(height: 24),
-
                       SizedBox(
                         width: rowMaxW,
                         child: _RitualCtaButton(
@@ -415,9 +510,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                           compact: true,
                         ),
                       ),
-
                       const SizedBox(height: 30),
-
                       SizedBox(
                         width: rowMaxW,
                         child: Align(
@@ -425,67 +518,18 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                           child: _PlusWriteInlineAction(
                             enabled: !_loadingExisting && _isSelectionComplete,
                             onTap: _goToWriteTwo,
-                            label: _hasExisting ? '이 카드로 내일 일기 수정하기' : '이 카드로 내일 일기 쓰기',
+                            label: _hasExisting
+                                ? '이 카드로 내일 일기 수정하기'
+                                : '이 카드로 내일 일기 쓰기',
                           ),
                         ),
                       ),
-
                       const Spacer(flex: 3),
                     ],
                   ),
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// ===============================
-/// 헤더
-/// ===============================
-class _HeaderBar extends StatelessWidget {
-  final String title;
-  final VoidCallback onBack;
-
-  const _HeaderBar({
-    required this.title,
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final w = LayoutTokens.contentW(context);
-
-    return Align(
-      alignment: Alignment.topCenter,
-      child: SizedBox(
-        width: w,
-        child: Row(
-          children: [
-            Transform.translate(
-              offset: const Offset(LayoutTokens.backBtnNudgeX, 0),
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                color: _a(AppTheme.homeInkWarm, 0.95),
-                onPressed: onBack,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                title,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.title.copyWith(
-                  color: _a(AppTheme.homeInkWarm, 0.96),
-                ),
-              ),
-            ),
-            const SizedBox(width: 40),
           ],
         ),
       ),
@@ -532,10 +576,10 @@ class _BackCardRow extends StatelessWidget {
       return i == 0 ? 1 : 0;
     }
 
-    final rowWFor3 = (cardW * 3) + (gap * 2);
+    final rowW = (cardW * c) + (gap * (c - 1));
 
     return SizedBox(
-      width: rowWFor3,
+      width: rowW,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -554,8 +598,15 @@ class _BackCardRow extends StatelessWidget {
                     width: cardW,
                     height: cardH,
                     flipped: isFlipped,
-                    front: _TarotFrontCard(width: cardW, height: cardH, cardId: cardId),
-                    back: _TarotBackCard(width: cardW, height: cardH),
+                    front: _TarotFrontCard(
+                      width: cardW,
+                      height: cardH,
+                      cardId: cardId,
+                    ),
+                    back: _TarotBackCard(
+                      width: cardW,
+                      height: cardH,
+                    ),
                     onTap: () => onTapCard(i),
                   ),
                 ),
@@ -564,8 +615,8 @@ class _BackCardRow extends StatelessWidget {
           ),
           if (showReset)
             Positioned(
-              top: -10,
-              right: -10,
+              top: -6,
+              right: -6,
               child: _MiniResetButton(onTap: onReset),
             ),
         ],
@@ -581,7 +632,7 @@ class _MiniResetButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = _a(Colors.black, 0.22);
+    final bg = _a(const Color(0xFF7E6BB5), 0.55);
     final border = _a(Colors.white, 0.28);
     final icon = _a(Colors.white, 0.90);
 
@@ -607,7 +658,7 @@ class _MiniResetButton extends StatelessWidget {
             ],
           ),
           child: Center(
-            child: Icon(Icons.refresh_rounded, size: 18, color: icon),
+            child: Icon(Icons.refresh_rounded, size: 20, color: icon),
           ),
         ),
       ),
@@ -645,10 +696,16 @@ class _PlusWriteInlineActionState extends State<_PlusWriteInlineAction> {
   Widget build(BuildContext context) {
     final enabled = widget.enabled;
 
-    final chipBg = enabled ? _a(const Color(0xFF8FB0FF), 0.16) : _a(Colors.white, 0.10);
-    final chipBorder = enabled ? _a(const Color(0xFFBFD0FF), 0.26) : _a(Colors.white, 0.14);
-    final plus = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
-    final text = enabled ? _a(const Color(0xFFFFF2E6), 0.92) : _a(const Color(0xFFFFF2E6), 0.45);
+    final chipBg =
+    enabled ? _a(const Color(0xFF8FB0FF), 0.16) : _a(Colors.white, 0.10);
+    final chipBorder =
+    enabled ? _a(const Color(0xFFBFD0FF), 0.26) : _a(Colors.white, 0.14);
+    final plus = enabled
+        ? _a(const Color(0xFFFFF2E6), 0.92)
+        : _a(const Color(0xFFFFF2E6), 0.45);
+    final text = enabled
+        ? _a(const Color(0xFFFFF2E6), 0.92)
+        : _a(const Color(0xFFFFF2E6), 0.45);
 
     return IgnorePointer(
       ignoring: !enabled,

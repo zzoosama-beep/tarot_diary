@@ -2,7 +2,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:tarot_diary/cardpicker.dart' as cp;
 
@@ -17,14 +16,13 @@ import '../ui/app_buttons.dart';
 import '../ui/app_toast.dart';
 // ✅ 공통 테마
 import '../theme/app_theme.dart';
-// id체크
-import '../backend/device_id_service.dart';
-// 챗지피티 api
-import '../backend/dalnyang_api.dart';
+// 챗지피티
+import '../backend/dalnyang_service.dart';
 // ✅ 달냥이 공용 에러(롱에러/기타)
 import '../error/app_error_dialog.dart';
 // ✅ 공용 에러 핸들러(known/unknown 분기)
 import '../error/app_error_handler.dart';
+import '../error/error_reporter.dart';
 
 class WriteDiaryPage extends StatefulWidget {
   final DateTime? initialDate;
@@ -44,6 +42,10 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== UI CONST ==================
   static const double _actionBtnH = 34.0; // 자동/수동/리셋 버튼 높이
   static const double _btnRadius = 14.0;
+
+  // ✅ 공용 divider 규격
+  static const double _dividerInset = 4.0;
+  static const double _dividerHeight = 1.0;
 
   // ✅ withOpacity 대체: 알파 정밀도/워닝 회피용
   static Color _a(Color c, double o) => c.withAlpha((o * 255).round());
@@ -131,25 +133,16 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     return ids.map(_cardTitle).join(', ');
   }
 
-  /// ✅ 광고 보기 전 사전 체크(남은 보상 횟수)
-  /// - 성공: 그냥 return
-  /// - 실패: DalnyangKnownException throw
-  Future<void> _precheckRewardBeforeAd() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw DalnyangKnownException('로그인이 필요해!');
+  String _loadDiaryErrorMessage() {
+    return '기록을 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
+  }
 
-    final idToken = (await user.getIdToken(true)) ?? '';
-    if (idToken.isEmpty) {
-      throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-    }
+  String _saveDiaryErrorMessage() {
+    return '기록을 저장하지 못했습니다.\n잠시 후 다시 시도해주세요.';
+  }
 
-    final deviceId = await DeviceIdService.getOrCreate();
-
-    // ✅ 문구/판단을 API 레이어로 위임
-    await DalnyangApi.precheckRewardOrThrow(
-      idToken: idToken,
-      deviceId: deviceId,
-    );
+  String _saveDiaryTimeoutMessage() {
+    return '기록 저장이 지연되고 있습니다.\n기기 상태를 확인한 뒤 다시 시도해주세요.';
   }
 
   // ================== TYPO (AppTheme 기반) ==================
@@ -181,7 +174,12 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== TOAST (공용) ==================
   void _toast(String msg, {double bottom = 110}) {
     if (!mounted) return;
-    AppToast.show(context, msg, bottom: bottom);
+    AppToast.show(context, msg);
+  }
+
+  void _showErrorMessage(String msg) {
+    if (!mounted) return;
+    showDalnyangErrorDialog(context, message: msg);
   }
 
   void _trySave() {
@@ -251,32 +249,17 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       _dallyangHint = null;
       _asking = true;
     });
-    _toast('달냥이가 생각 중…');
+    _toast('달냥이가 해석 중…');
 
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw DalnyangKnownException('로그인이 필요해!');
-
-      final String idToken = (await user.getIdToken(true)) ?? '';
-      if (idToken.isEmpty) {
-        throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-      }
-
-      final deviceId = await DeviceIdService.getOrCreate();
-
-      final ids = _pickedCards.take(_cardCount).toList();
-      final koCards = ids.map(_cardKoName).toList();
-
-      final String question = '오늘의 카드 $_cardCount장을 해석해줘.';
-
-      final answer = await DalnyangApi.ask(
-        idToken: idToken,
-        deviceId: deviceId,
-        question: question,
-        context: {'cards_ko': koCards},
+      final answer = await DalnyangService.askWithCoin(
+        context: context,
+        pickedCardIds: _pickedCards,
+        cardCount: _cardCount,
+        cardNameBuilder: _cardKoName,
       );
 
-      if (!mounted) return;
+      if (!mounted || answer == null) return;
 
       setState(() => _dallyangHint = answer);
       _toast('달냥이가 답을 줬어!');
@@ -322,6 +305,7 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
   // ================== LOAD ==================
   Future<void> _loadDiary() async {
     setState(() => _loading = true);
+
     try {
       final data = await DiaryRepo.I.read(date: _selectedDate);
       if (!mounted) return;
@@ -369,9 +353,18 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       });
 
       _hydrating = false;
-    } catch (e) {
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'WriteDiaryPage._loadDiary',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'selectedDate': _selectedDate.toIso8601String(),
+        },
+      );
+
       if (!mounted) return;
-      _errorLong('불러오기 실패:\n$e');
+      _showErrorMessage(_loadDiaryErrorMessage());
     } finally {
       _hydrating = false;
       if (mounted) setState(() => _loading = false);
@@ -418,15 +411,47 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       if (!mounted) return;
 
       Navigator.of(context).pop(true);
-    } on TimeoutException {
+    } on TimeoutException catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'WriteDiaryPage._save.TimeoutException',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'selectedDate': _selectedDate.toIso8601String(),
+          'cardCount': _cardCount,
+          'pickedCount': _pickedCards.length,
+        },
+      );
+
       if (!mounted) return;
-      _toast('저장이 너무 오래 걸려서 중단했어. (기기 저장소 확인)');
-    } catch (e) {
+      _showErrorMessage(_saveDiaryTimeoutMessage());
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'WriteDiaryPage._save',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'selectedDate': _selectedDate.toIso8601String(),
+          'cardCount': _cardCount,
+          'pickedCount': _pickedCards.length,
+          'afterUnlocked': _afterUnlocked,
+        },
+      );
+
       if (!mounted) return;
-      _errorLong('저장 실패:\n$e');
+      _showErrorMessage(_saveDiaryErrorMessage());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  // ================== COMMON DIVIDER ==================
+  Widget _commonDivider({EdgeInsetsGeometry? margin}) {
+    return Container(
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: _dividerInset),
+      height: _dividerHeight,
+      color: AppTheme.panelBorder,
+    );
   }
 
   // ================== CARD PICK ==================
@@ -435,7 +460,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
 
     final r = math.Random();
     final set = <int>{};
-    while (set.length < _cardCount) set.add(r.nextInt(78));
+    while (set.length < _cardCount) {
+      set.add(r.nextInt(78));
+    }
     setState(() {
       _pickedCards = set.toList();
       _isRevealed = true;
@@ -610,7 +637,9 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
       child: Column(
         children: [
           _buildCardList(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+          _commonDivider(),
+          const SizedBox(height: 14),
           _buildCardCountRow(),
           const SizedBox(height: 18),
           _buildPickButtons(),
@@ -929,11 +958,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
     );
   }
 
-  void _errorLong(String msg) {
-    if (!mounted) return;
-    showDalnyangErrorDialog(context, exceptionMessage: msg);
-  }
-
   Widget _buildDiaryInputs() => _combinedDiaryBox();
 
   Widget _combinedDiaryBox() {
@@ -988,18 +1012,6 @@ class _WriteDiaryPageState extends State<WriteDiaryPage> {
         ),
       );
     }
-
-    final confirmMsg = '''
-뽑힌 카드: ${_isRevealed && _pickedCards.length == _cardCount ? _cardsSummaryLine() : '아직 없음'}
-
-Before 내용(요약): ${_hasText(_beforeCtrl.text)
-        ? (_beforeCtrl.text.trim().length > 60
-        ? '${_beforeCtrl.text.trim().substring(0, 60)}…'
-        : _beforeCtrl.text.trim())
-        : '아직 없음'}
-
-광고 1회 시청 후 달냥이가 힌트를 줄게!
-'''.trim();
 
     Widget hintBox() {
       if (_asking) {
@@ -1112,46 +1124,56 @@ Before 내용(요약): ${_hasText(_beforeCtrl.text)
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _commonDivider(
+            margin: const EdgeInsets.only(
+              left: _dividerInset,
+              right: _dividerInset,
+              bottom: 12,
+            ),
+          ),
           Row(
             children: [
               Text('예상 기록 (Before)', style: _tsSectionTitle),
               const Spacer(),
-              DallyangAskPill(
-                enabled: _canAskDallyang,
-                confirmMessage: confirmMsg,
-                precheckBeforeAd: _precheckRewardBeforeAd,
-                onReward: () async {
-                  try {
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user == null) throw DalnyangKnownException('로그인이 필요해!');
-
-                    final idToken = (await user.getIdToken(true)) ?? '';
-                    if (idToken.isEmpty) {
-                      throw DalnyangKnownException('로그인 토큰을 가져오지 못했어. 다시 로그인해줘!');
-                    }
-
-                    final deviceId = await DeviceIdService.getOrCreate();
-                    final adEventId = '$deviceId-${DateTime.now().millisecondsSinceEpoch}';
-
-                    await DalnyangApi.creditRewardedAd(
-                      idToken: idToken,
-                      deviceId: deviceId,
-                      adEventId: adEventId,
-                    );
-
-                    await _askDallyang();
-                  } catch (e) {
-                    await handleDalnyangError(context, e);
-                  }
-                },
-                onDisabledTap: () {
-                  if (!_isRevealed || _pickedCards.length != _cardCount) {
-                    _toast('카드를 먼저 $_cardCount장 뽑아줘!');
-                    return;
-                  }
-                  if (_asking) _toast('달냥이가 생각 중이야…');
-                },
-                onNotReady: () => _toast('광고 준비 중이야. 잠깐만 다시 눌러줘!'),
+              SizedBox(
+                height: 34,
+                child: OutlinedButton.icon(
+                  onPressed: _canAskDallyang ? _askDallyang : null,
+                  icon: _asking
+                      ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _a(AppTheme.gold, 0.85),
+                      ),
+                    ),
+                  )
+                      : Icon(
+                    Icons.pets_rounded,
+                    size: 16,
+                    color: _a(AppTheme.tSecondary, 0.90),
+                  ),
+                  label: Text(
+                    '달냥이 찬스',
+                    style: AppTheme.uiSmallLabel.copyWith(
+                      color: _a(AppTheme.tSecondary, 0.90),
+                      fontSize: 12.0,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: _a(AppTheme.gold, 0.30), width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                    backgroundColor: _a(Colors.white, 0.02),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1164,7 +1186,7 @@ Before 내용(요약): ${_hasText(_beforeCtrl.text)
           ),
           hintBox(),
           const SizedBox(height: 12),
-          Container(height: 1, color: _a(AppTheme.gold, 0.13)),
+          _commonDivider(),
           const SizedBox(height: 12),
           Text('실제 기록 (After)', style: _tsSectionTitle),
           const SizedBox(height: 8),

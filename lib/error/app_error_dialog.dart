@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 
 Future<void> showDalnyangErrorDialog(
     BuildContext context, {
-      required String exceptionMessage,
-      bool showDebug = true, // true면 디버그 포함(Unknown)
+      required String message,
     }) {
-  final msg = _visibleMessage(exceptionMessage, showDebug: showDebug);
+  final msg = _visibleMessage(message);
 
   return showDialog(
     context: context,
@@ -17,17 +16,15 @@ Future<void> showDalnyangErrorDialog(
           borderRadius: BorderRadius.circular(16),
         ),
         child: ConstrainedBox(
-          // ✅ Known(짧음)일 땐 더 작게, Unknown(길 수 있음)만 크게
-          constraints: BoxConstraints(
-            maxHeight: showDebug ? 340 : 220,
+          constraints: const BoxConstraints(
+            maxHeight: 240,
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Column(
-              mainAxisSize: MainAxisSize.min, // ✅ 내용만큼만
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
                 Row(
                   children: const [
                     Icon(Icons.pets_rounded, size: 18),
@@ -42,32 +39,17 @@ Future<void> showDalnyangErrorDialog(
                   ],
                 ),
                 const SizedBox(height: 10),
-
-                // Message (짧으면 그냥, 길면 스크롤)
                 Flexible(
                   child: SingleChildScrollView(
                     child: Text(
                       msg,
-                      style: const TextStyle(fontSize: 13, height: 1.4),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ),
-
-                // ✅ Known이면 Divider/푸터 자체를 없앰 (중복 느낌 제거)
-                if (showDebug) ...[
-                  const SizedBox(height: 10),
-                  const Divider(height: 1),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '문제가 계속되면 문의해줘!',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      height: 1.4,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-
                 const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerRight,
@@ -85,11 +67,13 @@ Future<void> showDalnyangErrorDialog(
   );
 }
 
-String _visibleMessage(String exceptionMessage, {required bool showDebug}) {
-  final s = exceptionMessage.trim();
-  if (showDebug) return s;
+String _visibleMessage(String message) {
+  final s = message.trim();
 
   final idx = s.indexOf('\n---\n');
-  if (idx >= 0) return s.substring(0, idx).trim();
+  if (idx >= 0) {
+    return s.substring(0, idx).trim();
+  }
+
   return s;
 }

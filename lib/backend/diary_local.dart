@@ -1,6 +1,17 @@
 import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+
+import '../error/error_reporter.dart';
+
+class DiaryException implements Exception {
+  final String message;
+  const DiaryException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 /// ✅ SQLite(Local) 저장소
 ///
@@ -25,9 +36,10 @@ class DiaryLocal {
   static const String _t = 'diaries';
 
   Database? _db;
+  Future<Database>? _opening;
 
   // -------------------------
-  // ✅ Date helpers (Firestore와 동일)
+  // ✅ Date helpers
   // -------------------------
 
   /// DateTime -> "yyyy-MM-dd"
@@ -36,6 +48,22 @@ class DiaryLocal {
     final m = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+
+  /// "yyyy-MM-dd" -> DateTime
+  static DateTime dateFromKey(String key) {
+    try {
+      final parts = key.split('-');
+      if (parts.length != 3) {
+        throw const FormatException('Invalid dateKey');
+      }
+      final y = int.parse(parts[0]);
+      final m = int.parse(parts[1]);
+      final d = int.parse(parts[2]);
+      return DateTime(y, m, d);
+    } catch (_) {
+      return DateTime(1970, 1, 1);
+    }
   }
 
   /// dot 표시/쿼리용: 해당 날짜의 00:00
@@ -58,51 +86,100 @@ class DiaryLocal {
 
   Future<Database> _open() async {
     if (_db != null) return _db!;
+    if (_opening != null) return _opening!;
 
-    final base = await getDatabasesPath();
-    final path = p.join(base, _dbName);
+    _opening = _openInternal();
 
-    _db = await openDatabase(
-      path,
-      version: _dbVersion,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_t (
-            dateKey TEXT PRIMARY KEY,
-            dateInt INTEGER NOT NULL,
-            cardCount INTEGER NOT NULL,
-            cardsJson TEXT NOT NULL,
-            beforeText TEXT NOT NULL,
-            afterText TEXT NOT NULL,
-            updatedAt INTEGER NOT NULL
-          );
-        ''');
+    try {
+      final db = await _opening!;
+      _db = db;
+      return db;
+    } finally {
+      _opening = null;
+    }
+  }
 
-        // 월 dot / 월 리스트 조회 최적화
-        await db.execute('CREATE INDEX idx_${_t}_dateInt ON $_t(dateInt);');
-      },
-    );
+  Future<Database> _openInternal() async {
+    try {
+      final base = await getDatabasesPath();
+      final path = p.join(base, _dbName);
 
-    return _db!;
+      return await openDatabase(
+        path,
+        version: _dbVersion,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE $_t (
+              dateKey TEXT PRIMARY KEY,
+              dateInt INTEGER NOT NULL,
+              cardCount INTEGER NOT NULL,
+              cardsJson TEXT NOT NULL,
+              beforeText TEXT NOT NULL,
+              afterText TEXT NOT NULL,
+              updatedAt INTEGER NOT NULL
+            );
+          ''');
+
+          // 월 dot / 월 리스트 조회 최적화
+          await db.execute('CREATE INDEX idx_${_t}_dateInt ON $_t(dateInt);');
+        },
+      );
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal._open',
+        error: e,
+        stackTrace: st,
+      );
+
+      throw const DiaryException(
+        '일기 저장소를 여는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   /// 앱 종료/복원 전에 DB 닫을 때 사용
   Future<void> close() async {
     final db = _db;
     _db = null;
-    if (db != null) {
+    _opening = null;
+
+    if (db == null) return;
+
+    try {
       await db.close();
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.close',
+        error: e,
+        stackTrace: st,
+      );
+
+      throw const DiaryException(
+        '일기 저장소를 정리하는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
     }
   }
 
   /// 현재 db 파일 경로가 필요할 때(백업용) 쓰기 좋음
   Future<String> getDbPath() async {
-    final base = await getDatabasesPath();
-    return p.join(base, _dbName);
+    try {
+      final base = await getDatabasesPath();
+      return p.join(base, _dbName);
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.getDbPath',
+        error: e,
+        stackTrace: st,
+      );
+
+      throw const DiaryException(
+        '데이터 경로를 확인하는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   // -------------------------
-  // ✅ cards normalize (Firestore 스타일)
+  // ✅ cards normalize
   // -------------------------
 
   static int _clampCardCount(dynamic v) {
@@ -132,8 +209,31 @@ class DiaryLocal {
     return jsonEncode(safe);
   }
 
+  Map<String, dynamic> _normalizeRowFromDb(Map<String, dynamic> r) {
+    final key = _str(r['dateKey']);
+    final d = key.isNotEmpty
+        ? dateFromKey(key)
+        : dateFromInt((r['dateInt'] is num) ? (r['dateInt'] as num).toInt() : 0);
+
+    final cc = _clampCardCount(r['cardCount']);
+    final ids = _decodeCards(_str(r['cardsJson'])).take(cc).toList();
+
+    return {
+      'dateKey': key,
+      'date': dateOnly(d),
+      'dateInt': dateIntOf(dateOnly(d)),
+      'cardCount': cc,
+      'cards': ids,
+      'beforeText': _str(r['beforeText']),
+      'afterText': _str(r['afterText']),
+      'updatedAt': (r['updatedAt'] is num)
+          ? (r['updatedAt'] as num).toInt()
+          : int.tryParse(_str(r['updatedAt'])) ?? 0,
+    };
+  }
+
   // -------------------------
-  // ✅ CRUD (DiaryFirestore와 동일한 느낌)
+  // ✅ CRUD
   // -------------------------
 
   /// ✅ 해당 날짜 일기 로드 (없으면 null)
@@ -142,34 +242,36 @@ class DiaryLocal {
     required String uid, // ✅ 호환용 (로컬은 사용 안 함)
     required DateTime date,
   }) async {
-    final db = await _open();
-    final key = dateKeyOf(date);
+    try {
+      final db = await _open();
+      final key = dateKeyOf(dateOnly(date));
 
-    final rows = await db.query(
-      _t,
-      where: 'dateKey = ?',
-      whereArgs: [key],
-      limit: 1,
-    );
+      final rows = await db.query(
+        _t,
+        where: 'dateKey = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
 
-    if (rows.isEmpty) return null;
+      if (rows.isEmpty) return null;
+      return _normalizeRowFromDb(rows.first);
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.read',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'date': date.toIso8601String(),
+        },
+      );
 
-    final r = rows.first;
+      if (e is DiaryException) rethrow;
 
-    final cc = _clampCardCount(r['cardCount']);
-    final cards = _decodeCards(_str(r['cardsJson'])).take(cc).toList();
-
-    return {
-      'dateKey': key,
-      // Firestore의 'date'(Timestamp) 대신, 로컬은 DateTime(00:00)을 함께 제공
-      'date': dateOnly(date),
-      'cardCount': cc,
-      'cards': cards,
-      'beforeText': _str(r['beforeText']),
-      'afterText': _str(r['afterText']),
-      // 로컬은 updatedAt을 int(ms)로 저장
-      'updatedAt': r['updatedAt'],
-    };
+      throw const DiaryException(
+        '일기 데이터를 불러오는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   /// ✅ 해당 날짜 일기 존재 여부
@@ -177,15 +279,33 @@ class DiaryLocal {
     required String uid, // 호환용
     required DateTime date,
   }) async {
-    final db = await _open();
-    final key = dateKeyOf(date);
+    try {
+      final db = await _open();
+      final key = dateKeyOf(dateOnly(date));
 
-    final rows = await db.rawQuery(
-      'SELECT 1 FROM $_t WHERE dateKey = ? LIMIT 1',
-      [key],
-    );
+      final rows = await db.rawQuery(
+        'SELECT 1 FROM $_t WHERE dateKey = ? LIMIT 1',
+        [key],
+      );
 
-    return rows.isNotEmpty;
+      return rows.isNotEmpty;
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.exists',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'date': date.toIso8601String(),
+        },
+      );
+
+      if (e is DiaryException) rethrow;
+
+      throw const DiaryException(
+        '일기 존재 여부를 확인하는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   /// ✅ 저장(덮어쓰기)
@@ -198,29 +318,49 @@ class DiaryLocal {
     required String beforeText,
     required String afterText,
   }) async {
-    final db = await _open();
-    final d0 = dateOnly(date);
-    final key = dateKeyOf(d0);
-    final di = dateIntOf(d0);
+    try {
+      final db = await _open();
+      final d0 = dateOnly(date);
+      final key = dateKeyOf(d0);
+      final di = dateIntOf(d0);
 
-    final cc = cardCount.clamp(1, 3);
-    final ids = cards.take(cc).map((e) => e.clamp(0, 77)).toList();
+      final cc = cardCount.clamp(1, 3);
+      final ids = cards.take(cc).map((e) => e.clamp(0, 77)).toList();
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+      final now = DateTime.now().millisecondsSinceEpoch;
 
-    await db.insert(
-      _t,
-      {
-        'dateKey': key,
-        'dateInt': di,
-        'cardCount': cc,
-        'cardsJson': _encodeCards(ids),
-        'beforeText': beforeText,
-        'afterText': afterText,
-        'updatedAt': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+      await db.insert(
+        _t,
+        {
+          'dateKey': key,
+          'dateInt': di,
+          'cardCount': cc,
+          'cardsJson': _encodeCards(ids),
+          'beforeText': beforeText,
+          'afterText': afterText,
+          'updatedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.save',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'date': date.toIso8601String(),
+          'cardCount': cardCount,
+          'cardsLength': cards.length,
+        },
+      );
+
+      if (e is DiaryException) rethrow;
+
+      throw const DiaryException(
+        '일기를 저장하는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   /// ✅ 삭제
@@ -228,9 +368,27 @@ class DiaryLocal {
     required String uid, // 호환용
     required DateTime date,
   }) async {
-    final db = await _open();
-    final key = dateKeyOf(dateOnly(date));
-    await db.delete(_t, where: 'dateKey = ?', whereArgs: [key]);
+    try {
+      final db = await _open();
+      final key = dateKeyOf(dateOnly(date));
+      await db.delete(_t, where: 'dateKey = ?', whereArgs: [key]);
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.delete',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'date': date.toIso8601String(),
+        },
+      );
+
+      if (e is DiaryException) rethrow;
+
+      throw const DiaryException(
+        '일기를 삭제하는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 
   /// ✅ 월별 dot 표시용: 해당 월에 저장된 날짜들의 key Set 반환
@@ -239,69 +397,119 @@ class DiaryLocal {
     required String uid, // 호환용
     required DateTime month,
   }) async {
-    final db = await _open();
+    try {
+      final db = await _open();
 
-    final start = DateTime(month.year, month.month, 1);
-    final end = DateTime(month.year, month.month + 1, 1);
+      final start = DateTime(month.year, month.month, 1);
+      final end = DateTime(month.year, month.month + 1, 1);
 
-    final startKey = dateIntOf(start);
-    final endKey = dateIntOf(end);
+      final startKey = dateIntOf(start);
+      final endKey = dateIntOf(end);
 
-    final rows = await db.query(
-      _t,
-      columns: ['dateInt'],
-      where: 'dateInt >= ? AND dateInt < ?',
-      whereArgs: [startKey, endKey],
-      orderBy: 'dateInt ASC',
-    );
+      final rows = await db.query(
+        _t,
+        columns: ['dateInt'],
+        where: 'dateInt >= ? AND dateInt < ?',
+        whereArgs: [startKey, endKey],
+        orderBy: 'dateInt ASC',
+      );
 
-    final out = <int>{};
-    for (final r in rows) {
-      final v = r['dateInt'];
-      if (v is int) out.add(v);
-      if (v is num) out.add(v.toInt());
+      final out = <int>{};
+      for (final r in rows) {
+        final v = r['dateInt'];
+        if (v is int) out.add(v);
+        if (v is num) out.add(v.toInt());
+      }
+      return out;
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.listMonthEntryKeys',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'month': month.toIso8601String(),
+        },
+      );
+
+      if (e is DiaryException) rethrow;
+
+      throw const DiaryException(
+        '월별 일기 목록을 불러오는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
     }
-    return out;
   }
 
-  /// ✅ (선택) 월의 모든 일기를 한 번에 가져오기
+  /// ✅ 월의 모든 일기를 한 번에 가져오기
   /// 반환되는 각 Map의 'cards'는 항상 List<int>로 정규화됨
   Future<List<Map<String, dynamic>>> listMonthDocs({
     required String uid, // 호환용
     required DateTime month,
   }) async {
-    final db = await _open();
+    try {
+      final db = await _open();
 
-    final start = DateTime(month.year, month.month, 1);
-    final end = DateTime(month.year, month.month + 1, 1);
+      final start = DateTime(month.year, month.month, 1);
+      final end = DateTime(month.year, month.month + 1, 1);
 
-    final startKey = dateIntOf(start);
-    final endKey = dateIntOf(end);
+      final startKey = dateIntOf(start);
+      final endKey = dateIntOf(end);
 
-    final rows = await db.query(
-      _t,
-      where: 'dateInt >= ? AND dateInt < ?',
-      whereArgs: [startKey, endKey],
-      orderBy: 'dateInt ASC',
-    );
+      final rows = await db.query(
+        _t,
+        where: 'dateInt >= ? AND dateInt < ?',
+        whereArgs: [startKey, endKey],
+        orderBy: 'dateInt ASC',
+      );
 
-    return rows.map((r) {
-      final di = (r['dateInt'] is num) ? (r['dateInt'] as num).toInt() : 0;
-      final d = dateFromInt(di);
-      final key = _str(r['dateKey']);
+      return rows.map(_normalizeRowFromDb).toList();
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.listMonthDocs',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+          'month': month.toIso8601String(),
+        },
+      );
 
-      final cc = _clampCardCount(r['cardCount']);
-      final ids = _decodeCards(_str(r['cardsJson'])).take(cc).toList();
+      if (e is DiaryException) rethrow;
 
-      return {
-        'dateKey': key,
-        'date': dateOnly(d),
-        'cardCount': cc,
-        'cards': ids,
-        'beforeText': _str(r['beforeText']),
-        'afterText': _str(r['afterText']),
-        'updatedAt': r['updatedAt'],
-      };
-    }).toList();
+      throw const DiaryException(
+        '월별 일기 데이터를 불러오는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
+  }
+
+  /// ✅ 백업용: 전체 일기 목록
+  Future<List<Map<String, dynamic>>> listAllDocs({
+    required String uid, // 호환용
+  }) async {
+    try {
+      final db = await _open();
+
+      final rows = await db.query(
+        _t,
+        orderBy: 'dateInt ASC',
+      );
+
+      return rows.map(_normalizeRowFromDb).toList();
+    } catch (e, st) {
+      await ErrorReporter.I.record(
+        source: 'DiaryLocal.listAllDocs',
+        error: e,
+        stackTrace: st,
+        extra: {
+          'uid': uid,
+        },
+      );
+
+      if (e is DiaryException) rethrow;
+
+      throw const DiaryException(
+        '전체 일기 데이터를 불러오는 중 문제가 발생했습니다.\n잠시 후 다시 시도해주세요.',
+      );
+    }
   }
 }

@@ -2,7 +2,7 @@ name: tarot_diary
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.10.7
@@ -13,7 +13,15 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
+  # 개발자에게 이메일 보내기
+  package_info_plus: ^8.0.2
+  device_info_plus: ^11.1.0
+  http: ^1.2.2
+
   intl: ^0.20.2
+
+  # Google Auth
+  googleapis_auth: ^1.6.0
 
   # 캘린더
   table_calendar: ^3.1.2
@@ -21,7 +29,7 @@ dependencies:
   # 아이콘
   cupertino_icons: ^1.0.8
 
-  # 인증 (Firebase는 Auth만 유지)
+  # Firebase Auth (로그인만 사용)
   firebase_core: ^3.15.2
   firebase_auth: ^5.7.0
   google_sign_in: ^6.2.1
@@ -29,14 +37,16 @@ dependencies:
   # UI
   google_fonts: ^8.0.0
 
-  # 로컬 DB (SQLite)
+  # 로컬 DB
   sqflite: ^2.3.0
   path_provider: ^2.1.2
   path: ^1.9.0
 
-  # 네트워크/구글 API (필요 시 유지)
-  http: ^1.2.0
+  # 네트워크 / Google API
   googleapis: ^13.2.0
+
+  # ✅ google_sign_in → googleapis 인증 브리지
+  extension_google_sign_in_as_googleapis_auth: ^2.0.13
 
   # 유틸
   archive: ^3.5.1
@@ -46,6 +56,9 @@ dependencies:
 
   # 광고
   google_mobile_ads: ^5.1.0
+  
+  # url 실행 (프롬프트 붙이기용)
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
@@ -60,10 +73,13 @@ flutter:
     - asset/main_top.webp
     - asset/main_bottom.webp
 
-    #icon
+    # icon
     - asset/icon_write_diary.png
     - asset/icon_list_diary.png
     - asset/icon_arcana.png
 
     # cards
     - asset/cards/
+
+    # tutorial
+    - asset/tutorial/
