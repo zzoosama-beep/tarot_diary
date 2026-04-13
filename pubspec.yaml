@@ -2,7 +2,7 @@ name: tarot_diary
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+3
+version: 1.0.0+4
 
 environment:
   sdk: ^3.10.7
@@ -45,7 +45,7 @@ dependencies:
   # 네트워크 / Google API
   googleapis: ^13.2.0
 
-  # ✅ google_sign_in → googleapis 인증 브리지
+  # google_sign_in → googleapis 인증 브리지
   extension_google_sign_in_as_googleapis_auth: ^2.0.13
 
   # 유틸
@@ -56,14 +56,15 @@ dependencies:
 
   # 광고
   google_mobile_ads: ^5.1.0
-  
-  # url 실행 (프롬프트 붙이기용)
+
+  # url 실행
   url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1   # ✅ 추가됨
 
 flutter:
   uses-material-design: true
@@ -83,3 +84,9 @@ flutter:
 
     # tutorial
     - asset/tutorial/
+
+# ✅ 여기 중요 (맨 아래, flutter랑 같은 레벨)
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "asset/icon.png"
