@@ -65,6 +65,29 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
     return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
   }
 
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool get _isTodayTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _isSameDate(_targetDate, today);
+  }
+
+  bool get _isTomorrowTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    return _isSameDate(_targetDate, tomorrow);
+  }
+
+  String get _writeHeaderText {
+    if (_isTodayTarget) return '오늘 타로일기 쓰기';
+    if (_isTomorrowTarget) return '내일 타로일기 쓰기';
+    return '타로일기 쓰기';
+  }
+
   /// ✅ 완료된 카드 id 리스트(1~3장)
   List<int> get _pickedIds {
     final out = <int>[];
@@ -76,7 +99,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
   }
 
   String _loadExistingDiaryErrorMessage() {
-    return '내일 기록을 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
+    return '일기를 불러오지 못했습니다.\n잠시 후 다시 시도해주세요.';
   }
 
   void _showErrorMessage(String message) {
@@ -353,7 +376,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
           pickedCardIds: _pickedIds,
           cardCount: _cardCount,
 
-          // ✅ "내일" 날짜로 저장/수정되게 강제
+          // ✅ 선택된 기준 날짜(_targetDate)로 저장/수정
           selectedDate: _targetDate,
 
           // ✅ 기존 내일 일기 있으면 텍스트 프리필
@@ -377,7 +400,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
 
     final String hintLine = _loadingExisting
         ? '불러오는 중…'
-        : (_hasExisting ? '내일 일기 불러왔어요.' : '카드를 터치하면 자동으로 뒤집어집니다');
+        : (_hasExisting ? '작성한 일기를 불러왔어요.' : '카드를 터치하면 자동으로 뒤집어집니다');
 
     final double sidePad = MediaQuery.of(context).size.width < 360
         ? 12
@@ -434,7 +457,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                     Expanded(
                       child: Center(
                         child: Text(
-                          '내일 타로일기 쓰기',
+                          _writeHeaderText,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: AppTheme.title.copyWith(
@@ -518,9 +541,7 @@ class _WriteDiaryOnePageState extends State<WriteDiaryOnePage> {
                           child: _PlusWriteInlineAction(
                             enabled: !_loadingExisting && _isSelectionComplete,
                             onTap: _goToWriteTwo,
-                            label: _hasExisting
-                                ? '이 카드로 내일 일기 수정하기'
-                                : '이 카드로 내일 일기 쓰기',
+                            label: '이 카드로 일기 쓰기',
                           ),
                         ),
                       ),

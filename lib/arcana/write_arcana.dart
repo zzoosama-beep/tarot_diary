@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../backend/auth_service.dart';
+import '../ads/rewarded_gate.dart';
 
 // UI
 import '../theme/app_theme.dart';
@@ -128,6 +129,7 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
         : '내 기준으로 이 카드가 어떤 의미였는지, 어떤 경험으로 남았는지 적어봐요.';
   }
 
+
   @override
   void initState() {
     super.initState();
@@ -136,14 +138,23 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _openPickDialogOrRoute();
       });
-    } else {
-      final id = widget.cardId!;
-      _selectedId = id;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _applyDraftOrLoad(id);
-        if (mounted) setState(() {});
-      });
+      return;
     }
+
+    final id = widget.cardId!;
+    _selectedId = id;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _applyDraftOrLoad(id);
+      if (mounted) setState(() {});
+    });
+
+    // ✅ 여기서만 warm-up
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
+      RewardedGate.warmUpOnce().catchError((_) {});
+    });
   }
 
   void _openPickDialogOrRoute() {

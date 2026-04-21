@@ -90,6 +90,35 @@ class RewardedGate {
     _syncReadyNotifier();
   }
 
+  static Future<void>? _warmUpFuture;
+  static bool _warmUpDone = false;
+
+  static Future<void> warmUpOnce() {
+    if (_warmUpDone) return Future.value();
+    if (_warmUpFuture != null) return _warmUpFuture!;
+
+    _warmUpFuture = () async {
+      try {
+        await warmUp();
+        _warmUpDone = true;
+      } catch (e, st) {
+        await ErrorReporter.I.record(
+          source: 'RewardedGate.warmUpOnce',
+          error: e,
+          stackTrace: st,
+        );
+        rethrow;
+      } finally {
+        _warmUpFuture = null;
+      }
+    }();
+
+    return _warmUpFuture!;
+  }
+
+  static bool get hasWarmedUp => _warmUpDone;
+  static bool get isWarmingUp => _warmUpFuture != null;
+
   static bool _isCoolingDown() {
     final failedAt = _lastLoadFailedAt;
     if (failedAt == null) return false;

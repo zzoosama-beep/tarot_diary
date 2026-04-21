@@ -49,11 +49,11 @@ class _MainHomePageState extends State<MainHomePage> {
     _loadTodayDiary();
 
     // 광고 워밍업
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return;
-      _warmUpRewardedAd();
-    });
+    //
+    //  await Future.delayed(const Duration(seconds: 1));
+    //  if (!mounted) return;
+    //  _warmUpRewardedAd();
+    //});
 
     // 👇 백업 안내 추가
     WidgetsBinding.instance.addPostFrameCallback((_) {

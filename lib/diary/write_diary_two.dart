@@ -54,6 +54,35 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
     return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
   }
 
+  String get _timeWord {
+    if (_isTodayTarget) return '오늘';
+    if (_isTomorrowTarget) return '내일';
+    return '하루';
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool get _isTodayTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _isSameDate(_saveDate, today);
+  }
+
+  bool get _isTomorrowTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    return _isSameDate(_saveDate, tomorrow);
+  }
+
+  String get _writeHeaderText {
+    if (_isTodayTarget) return '오늘 타로일기 쓰기';
+    if (_isTomorrowTarget) return '내일 타로일기 쓰기';
+    return '타로일기 쓰기';
+  }
+
   bool _hasText(String v) =>
       v.replaceAll(RegExp(r'[\s\u200B-\u200D\uFEFF]'), '').isNotEmpty;
 
@@ -83,9 +112,20 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
     return [
       '당신은 타로 해석 전문가입니다.',
       '카드: $cards',
-      '타로카드를 뽑아서 내일 하루의 흐름이 어떨지 미리 예상해볼 거예요.',
-      '카드를 한장씩 해석하지 말고, 전체의 흐름으로 묶어서 자연스럽게 해석해주세요',
-      '마지막 문장은 조언을 작성해주세요.',
+      '',
+      '이 카드들은 각각 따로 해석하지 말고,',
+      '세 장이 이어지게 크게 하나로 묶어서 해석해주세요.',
+      '',
+      '카드별 의미를 순서대로 설명하기보다는,',
+      '전체적인 분위기와 상황의 전개, 감정이',
+      '자연스럽게 이어지도록 하나의 글처럼 작성해주세요.',
+      '',
+      '${_timeWord}의 하루를 중심으로 해석해주세요.',
+      '좋은 흐름과 주의할 점을 함께 써주세요.',
+      'AI처럼 설명하는 말투가 아니라, 블로그 글처럼 자연스럽고 부드러운 문장으로 작성해주세요.',
+      '“흐름”이라는 단어를 반복해서 사용하지 말고, 다양한 표현으로 풀어주세요.',
+      '',
+      '마지막 문장에는 조언을 한 문장으로 덧붙여주세요.',
     ].join('\n');
   }
 
@@ -413,7 +453,7 @@ class _WriteDiaryTwoPageState extends State<WriteDiaryTwoPage> {
                           Expanded(
                             child: Center(
                               child: Text(
-                                '내일 타로일기 쓰기',
+                                _writeHeaderText,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
                                 style: AppTheme.title.copyWith(
@@ -845,7 +885,7 @@ class _DiaryInputTransparentState extends State<_DiaryInputTransparent> {
           border: InputBorder.none,
           filled: false,
           hintText:
-          '내일의 감정, 예상되는 장면, 카드가 말해주는 흐름…\n여기에 기록해주세요.\n카드 뜻을 잘 모르겠다면 AI에게 물어보세요.',
+          '하루의 감정, 예상되는 장면, 카드가 말해주는 흐름…\n여기에 기록해주세요.\n카드 뜻을 잘 모르겠다면 AI에게 물어보세요.',
           hintStyle: AppTheme.uiSmallLabel.copyWith(
             fontSize: 13.2,
             height: 1.5,
