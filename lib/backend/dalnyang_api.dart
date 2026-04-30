@@ -33,9 +33,6 @@ class DalnyangApi {
   static const String baseUrl =
       'https://asia-northeast3-tarotdiary-88376.cloudfunctions.net/api';
 
-  static DateTime? _lastWarmupAt;
-  static Future<void>? _warmupInFlight;
-
   static void _log(String message) {
     if (kDebugMode) {
       debugPrint('[DalnyangApi] $message');
@@ -136,16 +133,6 @@ class DalnyangApi {
     return (lim is num) ? lim.toInt() : null;
   }
 
-  static bool _recentlyWarmed() {
-    final last = _lastWarmupAt;
-    if (last == null) return false;
-    return DateTime.now().difference(last) < const Duration(minutes: 2);
-  }
-
-  static bool _isWarmupable(String idToken, String deviceId) {
-    return idToken.trim().isNotEmpty && deviceId.trim().isNotEmpty;
-  }
-
   static Future<String> _resolveFreshIdToken(String fallbackToken) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -168,56 +155,22 @@ class DalnyangApi {
     }
   }
 
+  /// 기존 warmUpServer는 Functions 호출 수를 늘려 비용을 만들 수 있어서
+  /// 자동 호출하지 않도록 남겨만 둡니다.
+  /// 필요할 때 수동 디버깅용으로만 쓰세요.
   static Future<void> warmUpServer({
     required String idToken,
     required String deviceId,
     bool force = false,
   }) async {
-    final effectiveIdToken = await _resolveFreshIdToken(idToken);
-
-    if (!_isWarmupable(effectiveIdToken, deviceId)) return;
-    if (!force && _recentlyWarmed()) return;
-    if (!force && _warmupInFlight != null) return _warmupInFlight!;
-
-    final future = () async {
-      final uri = Uri.parse('$baseUrl/reward/rewarded-ad/status');
-      final headers = <String, String>{
-        'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': 'Bearer $effectiveIdToken',
-        'X-Device-Id': deviceId,
-      };
-
-      try {
-        _log('warmUpServer GET $uri');
-        final res =
-        await http.get(uri, headers: headers).timeout(const Duration(seconds: 6));
-        _log('warmUpServer status=${res.statusCode}');
-        _lastWarmupAt = DateTime.now();
-      } catch (e, st) {
-        await ErrorReporter.I.record(
-          source: 'DalnyangApi.warmUpServer',
-          error: e,
-          stackTrace: st,
-          extra: {
-            'force': force,
-          },
-        );
-        _log('warmUpServer skipped/fail');
-      } finally {
-        _warmupInFlight = null;
-      }
-    }();
-
-    _warmupInFlight = future;
-    return future;
+    return;
   }
 
   static Future<void> prepareForUse({
     required String idToken,
     required String deviceId,
   }) async {
-    final effectiveIdToken = await _resolveFreshIdToken(idToken);
-    return warmUpServer(idToken: effectiveIdToken, deviceId: deviceId);
+    return;
   }
 
   static Future<RewardStatus> precheckRewardOrThrow({
@@ -229,9 +182,11 @@ class DalnyangApi {
       idToken: effectiveIdToken,
       deviceId: deviceId,
     );
+
     if (status.remaining <= 0) {
       throw DalnyangKnownException(dailyLimitRewardMsg(status.limit));
     }
+
     return status;
   }
 
@@ -267,52 +222,20 @@ class DalnyangApi {
   }) async {
     final effectiveIdToken = await _resolveFreshIdToken(idToken);
 
-    await warmUpServer(idToken: effectiveIdToken, deviceId: deviceId);
-
     final safeRequestId =
-    (requestId != null && requestId.trim().isNotEmpty) ? requestId : adEventId;
+    (requestId != null && requestId.trim().isNotEmpty)
+        ? requestId
+        : adEventId;
 
-    try {
-      return await _creditRewardedAdOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        adEventId: adEventId,
-        requestId: safeRequestId,
-        status: status,
-        adType: adType,
-        platform: platform,
-      );
-    } on SocketException catch (_) {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _creditRewardedAdOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        adEventId: adEventId,
-        requestId: safeRequestId,
-        status: status,
-        adType: adType,
-        platform: platform,
-      );
-    } on TimeoutException {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _creditRewardedAdOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        adEventId: adEventId,
-        requestId: safeRequestId,
-        status: status,
-        adType: adType,
-        platform: platform,
-      );
-    }
+    return _creditRewardedAdOnce(
+      idToken: effectiveIdToken,
+      deviceId: deviceId,
+      adEventId: adEventId,
+      requestId: safeRequestId,
+      status: status,
+      adType: adType,
+      platform: platform,
+    );
   }
 
   static Future<RewardCreditResult> _creditRewardedAdOnce({
@@ -327,7 +250,9 @@ class DalnyangApi {
     final uri = Uri.parse('$baseUrl/reward/rewarded-ad/credit');
 
     final safeRequestId =
-    (requestId != null && requestId.trim().isNotEmpty) ? requestId : adEventId;
+    (requestId != null && requestId.trim().isNotEmpty)
+        ? requestId
+        : adEventId;
 
     final headers = <String, String>{
       'Content-Type': 'application/json; charset=utf-8',
@@ -391,8 +316,11 @@ class DalnyangApi {
 
       final user = data['user'];
       final credits =
-      (user is Map && user['credits'] is num) ? (user['credits'] as num).toInt() : 0;
-      final creatorPoints = (user is Map && user['creator_points'] is num)
+      (user is Map && user['credits'] is num)
+          ? (user['credits'] as num).toInt()
+          : 0;
+      final creatorPoints =
+      (user is Map && user['creator_points'] is num)
           ? (user['creator_points'] as num).toInt()
           : 0;
       final totalAdRewardCount =
@@ -437,34 +365,10 @@ class DalnyangApi {
   }) async {
     final effectiveIdToken = await _resolveFreshIdToken(idToken);
 
-    await warmUpServer(idToken: effectiveIdToken, deviceId: deviceId);
-
-    try {
-      return await _getRewardStatusOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-      );
-    } on SocketException catch (_) {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _getRewardStatusOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-      );
-    } on TimeoutException {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _getRewardStatusOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-      );
-    }
+    return _getRewardStatusOnce(
+      idToken: effectiveIdToken,
+      deviceId: deviceId,
+    );
   }
 
   static Future<RewardStatus> _getRewardStatusOnce({
@@ -597,43 +501,13 @@ class DalnyangApi {
       );
     }
 
-    await warmUpServer(idToken: effectiveIdToken, deviceId: deviceId);
-
-    try {
-      return await _askOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        idempotencyKey: idempotencyKey,
-        question: question,
-        context: context,
-      );
-    } on SocketException catch (_) {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _askOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        idempotencyKey: idempotencyKey,
-        question: question,
-        context: context,
-      );
-    } on TimeoutException {
-      await warmUpServer(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        force: true,
-      );
-      return _askOnce(
-        idToken: effectiveIdToken,
-        deviceId: deviceId,
-        idempotencyKey: idempotencyKey,
-        question: question,
-        context: context,
-      );
-    }
+    return _askOnce(
+      idToken: effectiveIdToken,
+      deviceId: deviceId,
+      idempotencyKey: idempotencyKey,
+      question: question,
+      context: context,
+    );
   }
 
   static Future<AskResult> _askOnce({
@@ -820,8 +694,8 @@ class AskResult {
     required this.cached,
     required this.mode,
     required this.remainingCredits,
-    required this.day,
     required this.uidUsed,
+    required this.day,
     required this.limit,
   });
 }

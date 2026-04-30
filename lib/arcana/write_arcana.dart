@@ -172,24 +172,25 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
     FocusScope.of(context).unfocus();
 
+    // ✅ 1. 즉시 로딩 상태로 변경하여 유저가 '멈춤'으로 느끼지 않게 합니다.
+    setState(() => _askingArcana = true);
+
     try {
       final cardKoName = _cardKoName(selected.id);
       final cardEnName = selected.title;
 
+      // DalnyangService 호출
       final answer = await DalnyangService.askArcanaWithCoin(
         context: context,
         cardId: selected.id,
         cardKoName: cardKoName,
         cardEnName: cardEnName,
         onThinkingStart: () {
-          if (!mounted) return;
-          setState(() => _askingArcana = true);
+          // 로직 진입 시 다시 한번 상태 확인
+          if (mounted) setState(() => _askingArcana = true);
         },
         onThinkingEnd: () {
-          if (!mounted) return;
-          if (_askingArcana) {
-            setState(() => _askingArcana = false);
-          }
+          if (mounted) setState(() => _askingArcana = false);
         },
       );
 
@@ -206,25 +207,26 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
 
       setState(() {
         _meaningC.text = next;
-        _meaningC.selection =
-            TextSelection.collapsed(offset: _meaningC.text.length);
+        _meaningC.selection = TextSelection.collapsed(offset: _meaningC.text.length);
         _contentTab = _ArcanaContentTab.meaning;
       });
 
       _stashDraft();
       _toast('기본 의미에 달냥이 답변을 추가했습니다.');
     } catch (e, st) {
+      // 에러 발생 시 상태 초기화 필수
+      if (mounted) setState(() => _askingArcana = false);
+
       await ErrorReporter.I.record(
         source: 'WriteArcanaPage._askArcanaMeaning',
         error: e,
         stackTrace: st,
-        extra: {
-          'cardId': selected.id,
-        },
+        extra: {'cardId': selected.id},
       );
 
       _toast('달냥이를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
+      // 최종적으로 한 번 더 확인
       if (mounted && _askingArcana) {
         setState(() => _askingArcana = false);
       }
@@ -381,6 +383,9 @@ class _WriteArcanaPageState extends State<WriteArcanaPage> {
   }
 
   Future<void> _showAiActionSheet() async {
+    // ✅ 탭이 '나의 해석'일 때는 아예 시트를 열지 않도록 방어 로직 추가
+    if (_contentTab == _ArcanaContentTab.myNote) return;
+
     final selected = _selectedCard;
     if (selected == null) {
       _toast('카드를 먼저 선택해주세요.');
@@ -1898,6 +1903,9 @@ class _TabbedContentBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ '기본 의미' 탭일 때만 AI 버튼을 활성화 상태로 설정
+    final bool isAiEnabled = activeTab == _ArcanaContentTab.meaning;
+
     const boxRadius = BorderRadius.only(
       topRight: Radius.circular(16),
       bottomLeft: Radius.circular(16),
@@ -1935,7 +1943,13 @@ class _TabbedContentBox extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Center(child: _AiUtilButton(onTap: onAiTap)),
+                      // ✅ 버튼은 항상 유지하되 enabled 상태만 동적으로 변함
+                      Center(
+                        child: _AiUtilButton(
+                          onTap: onAiTap,
+                          enabled: isAiEnabled,
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
@@ -2159,9 +2173,11 @@ class _MiniActionChip extends StatelessWidget {
 
 class _AiUtilButton extends StatefulWidget {
   final VoidCallback onTap;
+  final bool enabled; // ✅ 탭 상태에 따른 활성화 여부
 
   const _AiUtilButton({
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
@@ -2172,21 +2188,35 @@ class _AiUtilButtonState extends State<_AiUtilButton> {
   bool _down = false;
 
   void _setDown(bool v) {
-    if (_down == v) return;
+    // ✅ 비활성화 상태거나 값이 같으면 무시
+    if (!widget.enabled || _down == v) return;
     setState(() => _down = v);
   }
 
   @override
   Widget build(BuildContext context) {
-    final iconBg = _a(AppTheme.homeInkWarm, _down ? 0.22 : 0.16);
-    final iconBorder = _a(AppTheme.headerInk, _down ? 0.24 : 0.16);
-    final iconFg = _a(AppTheme.homeInkWarm, 0.96);
-    final text = _a(AppTheme.homeInkWarm, 0.92);
+    // ✅ 활성화 상태에 따라 색상과 투명도를 다르게 적용
+    final iconBg = widget.enabled
+        ? _a(AppTheme.homeInkWarm, _down ? 0.22 : 0.16)
+        : _a(AppTheme.homeInkWarm, 0.05); // 비활성화 시 연하게
+
+    final iconBorder = widget.enabled
+        ? _a(AppTheme.headerInk, _down ? 0.24 : 0.16)
+        : _a(AppTheme.headerInk, 0.08);
+
+    final iconFg = widget.enabled
+        ? _a(AppTheme.homeInkWarm, 0.96)
+        : _a(AppTheme.homeInkWarm, 0.30); // 아이콘 흐릿하게
+
+    final textColor = widget.enabled
+        ? _a(AppTheme.homeInkWarm, 0.92)
+        : _a(AppTheme.homeInkWarm, 0.40); // 텍스트 흐릿하게
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: widget.onTap,
+        // ✅ 비활성화(나의 해석 탭) 시에는 클릭 이벤트 자체를 null로 설정
+        onTap: widget.enabled ? widget.onTap : null,
         borderRadius: BorderRadius.circular(999),
         splashColor: Colors.transparent,
         highlightColor: Colors.transparent,
@@ -2223,7 +2253,7 @@ class _AiUtilButtonState extends State<_AiUtilButton> {
                 style: GoogleFonts.gowunDodum(
                   fontSize: 12.8,
                   fontWeight: FontWeight.w900,
-                  color: text,
+                  color: textColor,
                   height: 1.0,
                 ),
               ),

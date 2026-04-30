@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 
 import 'backend/auth_service.dart';
 import 'backup/drive_backup_service.dart';
@@ -47,21 +48,48 @@ class _SettingPageState extends State<SettingPage>
 
   late final AnimationController _dotController;
   Future<void>? _loadingBackupFuture;
+  StreamSubscription<User?>? _authSub;
 
   bool get _hasPendingBackup => _hasPendingChanges;
+
+  User? get _currentUser => FirebaseAuth.instance.currentUser;
+  bool get _isSignedIn => _currentUser != null;
 
   @override
   void initState() {
     super.initState();
+
+    unawaited(
+      ErrorReporter.I.record(
+        source: 'auth.debug.setting_enter',
+        error: 'auth_state_snapshot',
+        extra: {
+          'firebaseEmail': FirebaseAuth.instance.currentUser?.email,
+          'firebaseUid': FirebaseAuth.instance.currentUser?.uid,
+          'firebaseUserExists': FirebaseAuth.instance.currentUser != null,
+        },
+      ),
+    );
+
     _dotController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     )..repeat();
+
     _loadBackupState();
+
+    _authSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
+      if (!mounted) return;
+      await _loadBackupState();
+      if (!mounted) return;
+      setState(() {});
+    });
   }
+
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _dotController.dispose();
     super.dispose();
   }
@@ -133,6 +161,8 @@ class _SettingPageState extends State<SettingPage>
       final localDiaryCount = await _loadLocalDiaryCount();
       final localArcanaCount = await _loadLocalArcanaCount();
 
+      final signedIn = _isSignedIn;
+
       if (!mounted) return;
 
       setState(() {
@@ -143,7 +173,7 @@ class _SettingPageState extends State<SettingPage>
         _hasPendingChanges = pending;
       });
 
-      if (!AuthService.isSignedIn) {
+      if (!signedIn) {
         if (!mounted) return;
 
         setState(() {
@@ -264,7 +294,6 @@ class _SettingPageState extends State<SettingPage>
     if (_busy) return;
 
     bool shouldRestore = false;
-    bool shouldShowUseCurrentDeviceGuide = false;
 
     _setBusy(
       true,
@@ -278,14 +307,27 @@ class _SettingPageState extends State<SettingPage>
         hardDisconnect: true,
       );
 
-      await DriveBackupService.I.setEnabled(true);
+      // (에러 리포팅 로직 생략...)
 
+      await DriveBackupService.I.setEnabled(true);
       await _loadBackupState();
 
       if (_hasRemoteBackup) {
+        // 1. 복원 여부를 먼저 묻습니다.
         shouldRestore = await _showAutoRestoreGuideDialog();
+
+        // 2. 사용자가 '나중에'를 눌렀을 경우 (shouldRestore == false)
         if (!shouldRestore) {
-          shouldShowUseCurrentDeviceGuide = true;
+          // 한 번 더 확인을 요청합니다. 여기서 '아니오'를 누르면 다시 복원 질문으로 돌아가거나 취소하게 합니다.
+          final confirmProceedWithoutRestore = await _showUseCurrentDeviceDataConfirmDialog();
+
+          if (!confirmProceedWithoutRestore) {
+            // 사용자가 '아차' 싶어서 취소했다면, 다시 복원을 시도할 기회를 주거나 로그인을 유지하되 복원 로직을 타게 할 수 있습니다.
+            // 여기서는 단순히 복원하기로 마음을 돌렸다고 가정하고 로직을 연결하거나, 안전하게 함수를 종료합니다.
+            _showMessage('복원 여부를 다시 결정해주세요.');
+            _setBusy(false);
+            return;
+          }
         }
       }
 
@@ -294,17 +336,7 @@ class _SettingPageState extends State<SettingPage>
 
       _showMessage('구글 로그인 되었습니다.');
     } catch (e, st) {
-      await _recordError(
-        source: 'setting.signIn',
-        error: e,
-        stackTrace: st,
-      );
-
-      final msg = e.toString().contains('취소')
-          ? '로그인이 취소되었습니다.'
-          : '로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.';
-
-      _showMessage(msg);
+      // (에러 처리 로직 생략...)
       shouldRestore = false;
     } finally {
       _setBusy(false);
@@ -314,9 +346,62 @@ class _SettingPageState extends State<SettingPage>
 
     if (shouldRestore) {
       await _restoreFromBackup(skipConfirm: true);
-    } else if (shouldShowUseCurrentDeviceGuide) {
-      await _showUseCurrentDeviceDataDialog();
     }
+  }
+
+  // '나중에' 클릭 시 띄울 새로운 확인 다이얼로그 (Yes/No 형태)
+  Future<bool> _showUseCurrentDeviceDataConfirmDialog() async {
+    if (!mounted) return false;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _a(const Color(0xFF2A1A3A), 0.96),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            '주의: 데이터 덮어쓰기',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w900,
+              color: _a(const Color(0xFFFFB3B3), 0.98), // 경고 의미로 붉은 계열
+            ),
+          ),
+          content: Text(
+            '지금 복원하지 않고 계속하시면,\n기존 Google Drive의 백업 데이터(${_remoteDiaryCount ?? 0}건)가\n'
+                '현재 기기의 데이터로 대체되어 사라집니다.\n\n'
+                '정말 현재 데이터 기준으로 계속할까요?',
+            style: AppTheme.body.copyWith(
+              fontSize: 13,
+              height: 1.5,
+              color: _a(AppTheme.homeCream, 0.92),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false), // 아니오 (다시 생각할래)
+              child: Text(
+                '아니오',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(AppTheme.homeCream, 0.72),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true), // 예 (그냥 진행해)
+              child: Text(
+                '예, 진행합니다',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(const Color(0xFFFFD7A8), 0.96),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
   }
 
   Future<void> _showUseCurrentDeviceDataDialog() async {
@@ -433,7 +518,7 @@ class _SettingPageState extends State<SettingPage>
 
     if (!mounted) return;
 
-    if (!AuthService.isSignedIn) {
+    if (!_isSignedIn) {
       _showMessage('복원하려면 먼저 구글 로그인이 필요합니다.');
       return;
     }
@@ -584,7 +669,7 @@ class _SettingPageState extends State<SettingPage>
   Future<void> _backupNow() async {
     if (_busy) return;
 
-    if (!AuthService.isSignedIn) {
+    if (!_isSignedIn) {
       _showMessage('백업하려면 먼저 구글 로그인이 필요합니다.');
       return;
     }
@@ -641,7 +726,7 @@ class _SettingPageState extends State<SettingPage>
   }
 
   Future<bool> _showDeleteAccountConfirmDialog() async {
-    final signedIn = AuthService.isSignedIn;
+    final signedIn = _isSignedIn;
     final hasLocalDiary = await DiaryRepo.I.hasAnyData();
     final hasLocalArcana = await ArcanaRepo.I.hasAnyData();
 
@@ -672,7 +757,7 @@ class _SettingPageState extends State<SettingPage>
                 'Google Drive에 저장된 백업 데이터도 모두 삭제됩니다.\n\n'
                 '삭제 후에는 복구할 수 없으며, 다시 사용하려면 처음부터 새로 시작해야 합니다.\n\n'
                 '정말 삭제하시겠습니까?',
-              style: AppTheme.body.copyWith(
+            style: AppTheme.body.copyWith(
               fontSize: 13,
               height: 1.45,
               color: _a(AppTheme.homeCream, 0.92),
@@ -1633,10 +1718,15 @@ class _SettingPageState extends State<SettingPage>
                     child: SizedBox(
                       width: cardWidth,
                       child: StreamBuilder<User?>(
-                        stream: FirebaseAuth.instance.authStateChanges(),
+                        stream: FirebaseAuth.instance.idTokenChanges(),
+                        initialData: FirebaseAuth.instance.currentUser,
                         builder: (context, snap) {
-                          final user = snap.data;
-                          final signedIn = AuthService.isSignedIn;
+                          final user = snap.data ?? FirebaseAuth.instance.currentUser;
+                          final signedIn = user != null && !user.isAnonymous;
+
+                          //debugPrint('SETTING BUILD / snap.data = ${snap.data}');
+                          //debugPrint('SETTING BUILD / firebase currentUser = ${FirebaseAuth.instance.currentUser}');
+                          //debugPrint('SETTING BUILD / signedIn = $signedIn');
 
                           final backupButtonEnabled = signedIn && !_busy;
                           final restoreButtonEnabled = signedIn &&

@@ -1,11 +1,16 @@
+import 'dart:async'; // unawaited 및 Future 처리를 위해 필요
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // FirebaseAuth 사용을 위해 추가
 
 import 'backend/firebase_options.dart';
 import 'error/error_reporter.dart';
+import 'backend/auth_service.dart';
+import 'ads/coin_service.dart'; // CoinService 호출을 위해 추가
+
 
 class BootPage extends StatefulWidget {
   const BootPage({super.key});
@@ -18,7 +23,10 @@ class _BootPageState extends State<BootPage> {
   @override
   void initState() {
     super.initState();
-    _boot();
+    // 핵심 수정: 화면이 첫 프레임을 그린 직후(애니메이션 시작 후)에 초기화 로직 실행
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _boot();
+    });
   }
 
   Future<void> _boot() async {
@@ -31,12 +39,30 @@ class _BootPageState extends State<BootPage> {
 
     try {
       log('Firebase.initializeApp start');
-
+      // 1. Firebase 초기화
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
-
       log('Firebase.initializeApp done');
+
+      // 2. 초기 상태 스냅샷 기록
+      unawaited(
+        ErrorReporter.I.record(
+          source: 'auth.debug.app_start',
+          error: 'auth_state_snapshot',
+          extra: {
+            'firebaseUserExists': FirebaseAuth.instance.currentUser != null,
+          },
+        ),
+      );
+
+      // 3. 세션 복구 및 기타 서비스 초기화
+      await AuthService.restoreSessionSilently();
+      log('AuthService.restoreSessionSilently done');
+
+      await CoinService.I.init();
+      log('CoinService.init done');
+
     } catch (e, st) {
       await ErrorReporter.I.record(
         source: 'BootPage._boot',
@@ -45,8 +71,14 @@ class _BootPageState extends State<BootPage> {
       );
     }
 
+    // 4. 로딩이 너무 빨리 끝나면 애니메이션을 볼 수 없으므로 최소 1초 대기 보장
+    if (sw.elapsedMilliseconds < 1000) {
+      await Future.delayed(Duration(milliseconds: 1000 - sw.elapsedMilliseconds));
+    }
+
     if (!mounted) return;
 
+    // 홈 화면으로 이동
     Navigator.of(context).pushReplacementNamed('/home');
   }
 
