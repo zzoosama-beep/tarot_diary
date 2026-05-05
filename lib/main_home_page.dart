@@ -16,6 +16,7 @@ import '../theme/app_theme.dart';
 import '../support/contact_form_page.dart';
 import '../ads/rewarded_gate.dart';
 import '../error/error_reporter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 Color _a(Color c, double o) => c.withAlpha((o * 255).round());
 
@@ -76,41 +77,80 @@ class _MainHomePageState extends State<MainHomePage> {
 
   Future<void> _checkBackupPrompt() async {
     final prefs = await SharedPreferences.getInstance();
-    final shown = prefs.getBool('backup_prompt_shown') ?? false;
 
-    if (shown) return;
+    final dismissed = prefs.getBool('backup_prompt_dismissed_v2') ?? false;
+    if (dismissed) return;
 
-    await prefs.setBool('backup_prompt_shown', true);
+    final user = FirebaseAuth.instance.currentUser;
+    final signedIn = user != null && !user.isAnonymous;
+
+    // 구글 로그인 되어 있으면 백업 안내 안 띄움
+    if (signedIn) return;
 
     if (!mounted) return;
 
-    showDialog(
+    final action = await showDialog<String>(
       context: context,
-      builder: (context) {
+      barrierDismissible: false,
+      builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('데이터를 안전하게 보관하시겠어요?'),
+          backgroundColor: const Color(0xFF2A1A3A),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            '기록을 안전하게 보관하시겠어요?',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           content: const Text(
-            'Google 로그인 후 Drive 백업을 켜두면\n'
+            'Google 계정을 연결해두면\n'
                 '앱을 삭제하거나 기기를 바꿔도\n'
-                '기록을 다시 불러올 수 있어요.',
+                '타로 일기 기록을 다시 불러올 수 있어요.',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+              height: 1.5,
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('나중에'),
+              onPressed: () => Navigator.pop(dialogContext, 'hide'),
+              child: const Text(
+                '다시 안 보기',
+                style: TextStyle(color: Colors.white54),
+              ),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _openSettings(); // 👈 이미 있는 함수 활용
-              },
-              child: const Text('설정하기'),
+              onPressed: () => Navigator.pop(dialogContext, 'settings'),
+              child: const Text(
+                '백업 설정하기',
+                style: TextStyle(
+                  color: Color(0xFFFFD7A8),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         );
       },
     );
+
+    if (action == 'hide') {
+      await prefs.setBool('backup_prompt_dismissed_v2', true);
+      return;
+    }
+
+    if (!mounted) return;
+
+    if (action == 'settings') {
+      await _openSettings();
+    }
   }
+
 
   Future<void> _recordError({
     required String source,

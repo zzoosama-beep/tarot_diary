@@ -293,8 +293,6 @@ class _SettingPageState extends State<SettingPage>
   Future<void> _signIn() async {
     if (_busy) return;
 
-    bool shouldRestore = false;
-
     _setBusy(
       true,
       title: '구글 로그인 중입니다',
@@ -307,47 +305,123 @@ class _SettingPageState extends State<SettingPage>
         hardDisconnect: true,
       );
 
-      // (에러 리포팅 로직 생략...)
-
       await DriveBackupService.I.setEnabled(true);
       await _loadBackupState();
 
-      if (_hasRemoteBackup) {
-        // 1. 복원 여부를 먼저 묻습니다.
-        shouldRestore = await _showAutoRestoreGuideDialog();
+      if (!mounted) return;
 
-        // 2. 사용자가 '나중에'를 눌렀을 경우 (shouldRestore == false)
-        if (!shouldRestore) {
-          // 한 번 더 확인을 요청합니다. 여기서 '아니오'를 누르면 다시 복원 질문으로 돌아가거나 취소하게 합니다.
-          final confirmProceedWithoutRestore = await _showUseCurrentDeviceDataConfirmDialog();
+      final hasLocalData = _localDiaryCount > 0 || _localArcanaCount > 0;
+      final hasRemoteData = _hasRemoteBackup &&
+          ((_remoteDiaryCount ?? 0) > 0 || (_remoteArcanaCount ?? 0) > 0);
 
-          if (!confirmProceedWithoutRestore) {
-            // 사용자가 '아차' 싶어서 취소했다면, 다시 복원을 시도할 기회를 주거나 로그인을 유지하되 복원 로직을 타게 할 수 있습니다.
-            // 여기서는 단순히 복원하기로 마음을 돌렸다고 가정하고 로직을 연결하거나, 안전하게 함수를 종료합니다.
-            _showMessage('복원 여부를 다시 결정해주세요.');
-            _setBusy(false);
-            return;
-          }
+      _setBusy(false);
+
+      if (hasRemoteData && hasLocalData) {
+        final action = await _showBackupConflictDialog();
+
+        if (action == 'restore') {
+          await _restoreFromBackup(skipConfirm: false);
+        } else if (action == 'backup') {
+          await _backupNow();
+        } else {
+          _showMessage('나중에 설정에서 백업 또는 복원을 선택할 수 있어요.');
         }
+      } else if (hasRemoteData && !hasLocalData) {
+        final shouldRestore = await _showAutoRestoreGuideDialog();
+        if (shouldRestore) {
+          await _restoreFromBackup(skipConfirm: true);
+        }
+      } else if (!hasRemoteData && hasLocalData) {
+        final shouldBackup = await _showFirstBackupGuideDialog();
+        if (shouldBackup) {
+          await _backupNow();
+        }
+      } else {
+        _showMessage('구글 로그인 되었습니다.');
       }
 
-      await _tryDeferredBackupIfNeeded();
       await _loadBackupState();
-
-      _showMessage('구글 로그인 되었습니다.');
     } catch (e, st) {
-      // (에러 처리 로직 생략...)
-      shouldRestore = false;
+      await _recordError(
+        source: 'setting.signIn',
+        error: e,
+        stackTrace: st,
+      );
+      _showMessage('구글 로그인 중 문제가 발생했습니다. 다시 시도해주세요.');
     } finally {
       _setBusy(false);
     }
-
-    if (!mounted) return;
-
-    if (shouldRestore) {
-      await _restoreFromBackup(skipConfirm: true);
-    }
   }
+
+
+  Future<String?> _showBackupConflictDialog() async {
+    if (!mounted) return null;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _a(const Color(0xFF2A1A3A), 0.96),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            '백업 선택이 필요합니다',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w900,
+              color: _a(AppTheme.homeCream, 0.96),
+            ),
+          ),
+          content: Text(
+            'Google Drive 백업과 현재 기기 기록이 모두 있습니다.\n\n'
+                '기존 백업을 복원하면 현재 기기의 기록이 덮어씌워질 수 있고,\n'
+                '현재 기기 기록을 백업하면 Google Drive의 기존 백업이 현재 기록으로 갱신됩니다.\n\n'
+                '어떤 데이터를 기준으로 사용할까요?\n\n'
+                '현재 기기: 일기 $_localDiaryCount건, 아르카나 $_localArcanaCount건\n'
+                '기존 백업: 일기 ${_remoteDiaryCount ?? 0}건, 아르카나 ${_remoteArcanaCount ?? 0}건',
+            style: AppTheme.body.copyWith(
+              fontSize: 13,
+              height: 1.5,
+              color: _a(AppTheme.homeCream, 0.92),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'later'),
+              child: Text(
+                '나중에',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(AppTheme.homeCream, 0.72),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'restore'),
+              child: Text(
+                '기존 백업 복원',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(const Color(0xFFFFD7A8), 0.96),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'backup'),
+              child: Text(
+                '현재 기록 백업',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(const Color(0xFFFFD7A8), 0.96),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   // '나중에' 클릭 시 띄울 새로운 확인 다이얼로그 (Yes/No 형태)
   Future<bool> _showUseCurrentDeviceDataConfirmDialog() async {
@@ -603,6 +677,64 @@ class _SettingPageState extends State<SettingPage>
     } finally {
       _setBusy(false);
     }
+  }
+
+  Future<bool> _showFirstBackupGuideDialog() async {
+    if (!mounted) return false;
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _a(const Color(0xFF2A1A3A), 0.96),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            '현재 기록을 백업할까요?',
+            style: AppTheme.body.copyWith(
+              fontWeight: FontWeight.w900,
+              color: _a(AppTheme.homeCream, 0.96),
+            ),
+          ),
+          content: Text(
+            '현재 기기에 저장된 기록이 있습니다.\n\n'
+                'Google Drive에는 아직 백업 데이터가 없으므로,\n'
+                '지금 현재 기록을 첫 백업으로 저장할 수 있어요.\n\n'
+                '현재 기기: 일기 $_localDiaryCount건, 아르카나 $_localArcanaCount건',
+            style: AppTheme.body.copyWith(
+              fontSize: 13,
+              height: 1.5,
+              color: _a(AppTheme.homeCream, 0.92),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                '나중에',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(AppTheme.homeCream, 0.72),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(
+                '백업하기',
+                style: AppTheme.uiSmallLabel.copyWith(
+                  color: _a(const Color(0xFFFFD7A8), 0.96),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
   }
 
   Future<bool?> _showRestoreConfirmDialog() async {
@@ -1753,6 +1885,49 @@ class _SettingPageState extends State<SettingPage>
                                 restoreEnabled: restoreButtonEnabled,
                                 isTablet: isTablet,
                               ),
+
+                              const SizedBox(height: 10),
+
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                                decoration: BoxDecoration(
+                                  color: _a(AppTheme.homeCream, 0.72),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: _a(AppTheme.headerInk, 0.12),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 1),
+                                      child: Icon(
+                                        Icons.info_outline_rounded,
+                                        size: 16,
+                                        color: _a(const Color(0xFF4E355F), 0.62),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '핸드폰을 변경하거나 앱을 삭제하기 전에는\n'
+                                            '반드시 ‘지금 백업’을 눌러주세요.\n'
+                                            '최신 기록이 저장되지 않을 수 있습니다.',
+                                        style: AppTheme.body.copyWith(
+                                          fontSize: 12.3,
+                                          height: 1.45,
+                                          fontWeight: FontWeight.w700,
+                                          color: _a(const Color(0xFF3A2147), 0.78),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
                               const SizedBox(height: 18),
                             ],
                           );
@@ -1771,3 +1946,4 @@ class _SettingPageState extends State<SettingPage>
     );
   }
 }
+

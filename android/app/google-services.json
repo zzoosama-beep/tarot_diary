@@ -61,13 +61,6 @@
             {
               "client_id": "949643870997-d7couhi59akjmvvi95jpgnc6nnltk1a9.apps.googleusercontent.com",
               "client_type": 3
-            },
-            {
-              "client_id": "949643870997-lgmvasoe2siif4i2oqutblp7b1v21n35.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.tarotDiary"
-              }
             }
           ]
         }
