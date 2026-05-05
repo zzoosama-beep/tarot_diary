@@ -46,6 +46,7 @@ class _EditDiaryPageState extends State<EditDiaryPage> {
   final FocusNode _beforeFocus = FocusNode();
   final FocusNode _afterFocus = FocusNode();
 
+
   bool _saving = false;
   bool _showBeforeTab = true;
 
@@ -58,6 +59,35 @@ class _EditDiaryPageState extends State<EditDiaryPage> {
 
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool get _isTodayTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _isSameDate(_saveDate, today);
+  }
+
+  String get _timeWord {
+    if (_isTodayTarget) return '오늘';
+    if (_isTomorrowTarget) return '내일';
+    return '하루';
+  }
+
+  bool get _isTomorrowTarget {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    return _isSameDate(_saveDate, tomorrow);
+  }
+
+  String get _editHeaderText {
+    if (_isTodayTarget) return '오늘 타로일기 수정';
+    if (_isTomorrowTarget) return '내일 타로일기 수정';
+    return '타로일기 수정';
   }
 
   bool get _canWriteAfter {
@@ -98,9 +128,20 @@ class _EditDiaryPageState extends State<EditDiaryPage> {
     return [
       '당신은 타로 해석 전문가입니다.',
       '카드: $cards',
-      '타로카드를 뽑아서 내일 하루의 흐름이 어떨지 미리 예상해볼 거예요.',
-      '카드를 한장씩 해석하지 말고, 전체의 흐름으로 묶어서 자연스럽게 해석해주세요',
-      '마지막 문장은 조언을 작성해주세요.',
+      '',
+      '이 카드들은 각각 따로 해석하지 말고,',
+      '세 장이 이어지게 크게 하나로 묶어서 해석해주세요.',
+      '',
+      '카드별 의미를 순서대로 설명하기보다는,',
+      '전체적인 분위기와 상황의 전개, 감정이',
+      '자연스럽게 이어지도록 하나의 글처럼 작성해주세요.',
+      '',
+      '${_timeWord}의 하루를 중심으로 해석해주세요.',
+      '좋은 흐름과 주의할 점을 함께 써주세요.',
+      'AI처럼 설명하는 말투가 아니라, 블로그 글처럼 자연스럽고 부드러운 문장으로 작성해주세요.',
+      '“흐름”이라는 단어를 반복해서 사용하지 말고, 다양한 표현으로 풀어주세요.',
+      '',
+      '마지막 문장에는 조언을 한 문장으로 덧붙여주세요.',
     ].join('\n');
   }
 
@@ -367,7 +408,7 @@ class _EditDiaryPageState extends State<EditDiaryPage> {
                         ),
                       ),
                       title: Text(
-                        '내일 타로일기 수정',
+                        _editHeaderText,
                         overflow: TextOverflow.ellipsis,
                         style: AppTheme.title.copyWith(
                           color: _a(AppTheme.homeInkWarm, 0.96),
@@ -426,7 +467,7 @@ class _EditDiaryPageState extends State<EditDiaryPage> {
                         enabled: _showBeforeTab ? true : _canWriteAfter,
                         locked: _showBeforeTab ? false : !_canWriteAfter,
                         hintText: _showBeforeTab
-                            ? '내일의 감정, 예상되는 장면, 카드가 말해주는 흐름…\n여기에 기록해주세요.\n카드뜻을 잘 모르겠으면 AI에게 물어보세요!'
+                            ? '하루의 감정, 예상되는 장면, 카드가 말해주는 흐름…\n여기에 기록해주세요.\n카드뜻을 잘 모르겠으면 AI에게 물어보세요!'
                             : (_canWriteAfter
                             ? '오늘 실제로 겪어보니 어떤 하루였는지 적어주세요.'
                             : '해당 날짜가 되어야 실제 기록을 열 수 있어요.'),

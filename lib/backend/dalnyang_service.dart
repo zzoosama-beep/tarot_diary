@@ -404,16 +404,6 @@ class DalnyangService {
 
     final refreshedCoins = CoinService.I.current;
     if (refreshedCoins < cost) {
-      final refreshedStatus = await _fetchAndSyncRewardStatus();
-      if (refreshedStatus.remaining <= 0) {
-        await CoinService.I.setCoins(0);
-        await _showNoMoreAdsDialog(
-          context,
-          limit: refreshedStatus.limit,
-        );
-        return false;
-      }
-
       throw DalnyangKnownException(
         '코인이 아직 부족합니다.\n광고를 더 본 뒤 다시 시도해주세요.',
       );
@@ -681,28 +671,11 @@ class DalnyangService {
 
     await CoinService.I.setCoins(creditResult.credits);
 
-    try {
-      final refreshed = await DalnyangApi.getRewardStatus(
-        idToken: idToken,
-        deviceId: deviceId,
-      );
-
-      await CoinService.I.syncRewardStatus(
-        limit: refreshed.limit,
-        used: refreshed.used,
-        remaining: refreshed.remaining,
-      );
-
-      if (refreshed.remaining <= 0 && CoinService.I.current <= 0) {
-        _log('reward exhausted after ad: coins=0, remaining=0');
-      }
-    } catch (e, st) {
-      await ErrorReporter.I.record(
-        source: 'DalnyangService._ensureCoinsByAd.refreshRewardStatus',
-        error: e,
-        stackTrace: st,
-      );
-    }
+    await CoinService.I.applyRewardStatusAfterCredit(
+      previousLimit: status.limit,
+      previousUsed: status.used,
+      previousRemaining: status.remaining,
+    );
 
     return CoinService.I.current >= 1;
   }
